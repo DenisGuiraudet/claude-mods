@@ -1,0 +1,19 @@
+{
+  "name": "denis-claude-mods",
+  "description": "Pixel mods for Claude Code: bubble replies on a meadow and a bunny loading line",
+  "owner": {
+    "name": "Denis Guiraudet"
+  },
+  "plugins": [
+    {
+      "name": "meadow",
+      "source": "./meadow",
+      "description": "Claude's replies as pixel bubbles: a short sky and hill on top, a strip of grass under the last block"
+    },
+    {
+      "name": "bunny-spinner",
+      "source": "./bunny-spinner",
+      "description": "The loading line speaks as a pixel bunny"
+    }
+  ]
+}

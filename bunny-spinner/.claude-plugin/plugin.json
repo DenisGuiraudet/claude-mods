@@ -1,0 +1,16 @@
+{
+  "name": "bunny-spinner",
+  "version": "1.0.0",
+  "description": "The loading line speaks as a pixel bunny: \"🐰 Michel: reading the docs\", \"nom nom\" while a tool runs",
+  "author": {
+    "name": "Denis Guiraudet"
+  },
+  "userConfig": {
+    "name": {
+      "type": "string",
+      "title": "Bunny's name",
+      "description": "The name the loading line speaks under.",
+      "default": "Michel"
+    }
+  }
+}

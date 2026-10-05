@@ -1,0 +1,9 @@
+{
+  "name": "meadow",
+  "version": "1.0.0",
+  "description": "Claude's replies as pixel bubbles: a short sky and hill on top, a strip of grass under the last block",
+  "author": {
+    "name": "Denis Guiraudet"
+  },
+  "types": "./types/index.d.ts"
+}
