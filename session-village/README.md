@@ -1,11 +1,11 @@
-# La Vallée
+# Session Village
 
 Un village de jeu de rôle en pixel art, derrière la conversation de Claude Code dans l'app Desktop. Le village vit au rythme de la session : le modèle, l'effort, le contexte, la limite 5 h, le coût, l'outil en cours, les tâches, les sous-agents et les waves de PR se lisent dans le décor. Le centre reste un pré calme sous la conversation.
 
 ## Installation
 
 ```
-/plugin install denis-mod --marketplace DenisGuiraudet/claude-mods
+/plugin install session-village --marketplace DenisGuiraudet/claude-mods
 ```
 
 Le fond s'affiche dans l'app Desktop. Le terminal, VS Code et l'app mobile gardent leur fond habituel.
@@ -44,11 +44,11 @@ Les waves suivent la branche git courante. Un titre de PR contenant `[2/4]` fixe
 
 ## Légende
 
-`/vallee` ouvre ou ferme un panneau qui liste chaque lieu, sa valeur en direct et ce qu'il faut regarder. Le lieu actif est mis en avant.
+`/village` ouvre ou ferme un panneau qui liste chaque lieu, sa valeur en direct et ce qu'il faut regarder. Le lieu actif est mis en avant.
 
 ## Performance
 
-Le décor fixe est une seule image PNG de 15 ko, les tuiles animées tiennent dans un atlas de 2,4 ko et chaque personnage est un PNG d'environ 1 ko, envoyé seulement s'il est à l'écran. Les animations sont en CSS, par paliers. Le monde avance toutes les 5 à 8 secondes et une image n'est envoyée que si quelque chose a changé, au plus une toutes les 1,5 seconde hors événement. Mesuré dans le labo : aucune avant le premier message, 8 par minute au repos, 12 en plein travail. Une image pèse de 45 à 80 ko, sous la limite de 128 ko.
+Le décor fixe est une seule image PNG de 15 ko, les tuiles animées tiennent dans un atlas de 2,4 ko et chaque personnage est un PNG d'environ 1 ko, envoyé seulement s'il est à l'écran. Les animations sont en CSS, par paliers. Le monde avance toutes les 5 à 8 secondes et une image n'est envoyée que si quelque chose a changé, au plus une toutes les 1,5 seconde hors événement. Mesuré : aucune avant le premier message, 8 par minute au repos, 12 en plein travail. Une image pèse de 45 à 80 ko, sous la limite de 128 ko.
 
 ## Crédits
 

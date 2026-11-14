@@ -1,4 +1,4 @@
-// Types for world.js, the generated engine and map of the Valley (see build/mod.js).
+// Types for world.js, the engine and map of the village.
 export type Activity = 'idle' | 'thinking' | 'bash' | 'edit' | 'read' | 'web';
 export type ModelKey = 'opus' | 'sonnet' | 'haiku' | 'fable';
 export type EffortKey = 'low' | 'medium' | 'high' | 'xhigh' | 'max';

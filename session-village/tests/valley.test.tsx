@@ -2,16 +2,16 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 const BACKDROP = {
-  plugin: 'denis-mod',
+  plugin: 'session-village',
   component: 'Backdrop',
-  props: { scene: 'valley', plugin: 'denis-mod', glass: { blur: 16, opacity: 0.6 } },
+  props: { scene: 'valley', plugin: 'session-village', glass: { blur: 16, opacity: 0.6 } },
 } as const
 
 const PANE = {
-  plugin: 'denis-mod',
+  plugin: 'session-village',
   component: 'Pane',
-  requestId: 'vallee',
-  props: { title: 'La Vallée', isFocused: false, bodyColumns: 48, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
+  requestId: 'village',
+  props: { title: 'Session Village', isFocused: false, bodyColumns: 48, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
 
 // The engine beneath the plugin: a fresh session on a branch, no turn yet.
@@ -22,7 +22,7 @@ function engine(on: On, turns = 0) {
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('session.turns', () => ({ value: turns }))
   on('process.run', () => ({ value: { exitCode: 0, stdout: 'feat/valley\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
-  on('command.register', () => ({ value: { command: 'vallee' } }))
+  on('command.register', () => ({ value: { command: 'village' } }))
   on('theme.set', () => ({ value: { isDrawn: true, requestId: 'r1' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('prompt.submit', (_, e) => ({ text: e.text }))
@@ -46,6 +46,16 @@ test('the scene draws on desktop, under the size limit, asleep before the first 
   expect(svg.length).toBeLessThan(131072)
   // the quest marker over the board only shows before the session starts
   expect(svg.includes('kalert')).toBe(true)
+})
+
+test('the scene is drawn as an image, where its embedded PNGs load', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...BACKDROP, surface: 'desktop' })
+  const svg = await ui.find({ type: 'Svg' })
+  await ui.unmount()
+  expect(String((svg?.props as { source?: string } | undefined)?.source).includes('href="data:image/png')).toBe(true)
+  expect((svg?.props as { isInteractive?: boolean } | undefined)?.isInteractive).toBeUndefined()
 })
 
 test('the first message wakes the village, a full context brings the fog', async ($, on) => {

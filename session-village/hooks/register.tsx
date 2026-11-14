@@ -1,8 +1,8 @@
-// La Vallée: a pixel-art village behind the conversation that lives at the pace of the session.
+// Session Village: a pixel-art village behind the conversation that lives at the pace of the session.
 // Signals: model and effort (turn.step), context, 5-hour limit and cost (session.measure), the tool
 // at work (tool.call), sub-agents (turn.start/complete of other loops), tasks (TodoWrite, TaskCreate,
 // TaskUpdate), commits, pushes and PRs (Bash and GitHub tools, GitHub events), compaction.
-// The world steps every 5 to 8 s and a frame is sent only when it changed; /vallee opens the legend.
+// The world steps every 5 to 8 s and a frame is sent only when it changed; /village opens the legend.
 import type { EngineInterface, Register } from 'claude-code'
 
 import {
@@ -13,7 +13,7 @@ import type { Activity, EffortKey, ModelKey, Steps } from './world.js'
 
 type $T = EngineInterface
 const SCENE = 'valley'
-const PANE = 'vallee'
+const PANE = 'village'
 const MIN_GAP = 1500 // ms between two frames for small changes; events go out at once
 const COMPACT_GAP = 30_000 // ms: session.compact and the context drop are one compaction
 const now = () => Date.now()
@@ -148,7 +148,7 @@ export const register: Register = on => {
     S.started = turns > 0
     await readBranch($)
     newWorld(now())
-    await $.command.register({ name: 'vallee', description: 'Ouvre ou ferme la légende de la Vallée' })
+    await $.command.register({ name: 'village', description: 'Ouvre ou ferme la légende du village' })
     const set = await $.theme.set({ backdrop: { scene: SCENE } })
     if (!set.isDrawn) $.ui.log(`valley: ${set.reason}`, { to: 'debug' })
     $.clock.every(1000, () => tick($))
@@ -299,18 +299,19 @@ export const register: Register = on => {
   on('ui.render', { component: 'Backdrop' }, ($, e, next) => {
     if (e.props.scene !== SCENE || e.surface !== 'desktop') return next(e)
     const { Svg } = $.ui.resolve(e)
-    return <Svg source={compose(now())} alt="La Vallée, un village en pixel art qui vit au rythme de la session" isInteractive />
+    // drawn as an image: the interactive frame loads nothing, so it would drop the embedded PNGs
+    return <Svg source={compose(now())} alt="Session Village, un village en pixel art qui vit au rythme de la session" />
   })
 
-  // ---------- /vallee: the legend pane ----------
-  on('command.run', { command: 'vallee' }, async $ => {
+  // ---------- /village: the legend pane ----------
+  on('command.run', { command: 'village' }, async $ => {
     const isUp = (await $.ui.panes()).some(p => p.id === PANE)
     if (isUp) {
       await $.ui.close({ id: PANE })
-      return { text: 'Légende de la Vallée fermée.' }
+      return { text: 'Légende du village fermée.' }
     }
-    await $.ui.open({ id: PANE, title: 'La Vallée' })
-    return { text: 'Légende de la Vallée ouverte.' }
+    await $.ui.open({ id: PANE, title: 'Session Village' })
+    return { text: 'Légende du village ouverte.' }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, ($, e) => {
