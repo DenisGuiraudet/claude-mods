@@ -48,7 +48,7 @@ Les waves suivent la branche git courante. Un titre de PR contenant `[2/4]` fixe
 
 ## Performance
 
-Le décor fixe est une seule image PNG de 15 ko, les tuiles animées tiennent dans un atlas de 2,4 ko et chaque personnage est un PNG d'environ 1 ko, envoyé seulement s'il est à l'écran. Les animations sont en CSS, par paliers. Le monde avance toutes les 5 à 8 secondes et une image n'est envoyée que si quelque chose a changé, au plus une toutes les 1,5 seconde hors événement. Mesuré : aucune avant le premier message, 8 par minute au repos, 12 en plein travail. Une image pèse de 45 à 80 ko, sous la limite de 128 ko.
+L'app Desktop n'affiche pas les images intégrées à une scène, donc tout le pixel art est en tracés vectoriels : chaque suite de pixels d'une même couleur sur une ligne est un trait. L'herbe est un motif répété, les cases du décor présentes plusieurs fois sont dessinées une seule fois, et un personnage n'envoie que ce qu'il montre (debout, la marche, l'attaque). Les animations sont en CSS, par paliers. Le monde avance toutes les 5 à 8 secondes et une image n'est envoyée que si quelque chose a changé, au plus une toutes les 1,5 seconde hors événement. Mesuré : aucune avant le premier message, 8 par minute au repos, 12 en plein travail. Une image fait environ 80 000 caractères au repos et jusqu'à 120 000 en plein travail, sous la limite de 131 072 : au-delà de 120 000, les personnages en marche glissent sur leur image debout.
 
 ## Crédits
 

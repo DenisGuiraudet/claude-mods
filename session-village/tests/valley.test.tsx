@@ -48,14 +48,17 @@ test('the scene draws on desktop, under the size limit, asleep before the first 
   expect(svg.includes('kalert')).toBe(true)
 })
 
-test('the scene is drawn as an image, where its embedded PNGs load', async ($, on) => {
+test('the scene embeds no image, which the desktop would drop: its pixels are vector paths', async ($, on) => {
   engine(on)
   await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
-  const ui = await $.ui.mount({ ...BACKDROP, surface: 'desktop' })
-  const svg = await ui.find({ type: 'Svg' })
-  await ui.unmount()
-  expect(String((svg?.props as { source?: string } | undefined)?.source).includes('href="data:image/png')).toBe(true)
-  expect((svg?.props as { isInteractive?: boolean } | undefined)?.isInteractive).toBeUndefined()
+  await $.prompt.submit({ text: 'Corrige le test du panier', wait: false, origin: { kind: 'composer' } })
+  const svg = await svgOf($)
+  expect(svg.includes('<image')).toBe(false)
+  expect(svg.includes('data:')).toBe(false)
+  // the ground, the hero and the colour classes they paint with
+  expect(svg.includes('fill="url(#vg)"')).toBe(true)
+  expect(svg.includes('<g id="a_hero_opus"')).toBe(true)
+  expect(/\.pa\{stroke:#[0-9a-f]{3,6}\}/.test(svg)).toBe(true)
 })
 
 test('the first message wakes the village, a full context brings the fog', async ($, on) => {

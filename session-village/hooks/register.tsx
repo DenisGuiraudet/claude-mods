@@ -16,6 +16,7 @@ const SCENE = 'valley'
 const PANE = 'village'
 const MIN_GAP = 1500 // ms between two frames for small changes; events go out at once
 const COMPACT_GAP = 30_000 // ms: session.compact and the context drop are one compaction
+const SVG_LIMIT = 131072 // characters: the desktop refuses a longer scene
 const now = () => Date.now()
 
 let lastTick = 0
@@ -25,6 +26,7 @@ let cwd = ''
 let branch = ''
 let ctxTokens: number | undefined // last context fill session.measure reported, in tokens
 let lastCompact = 0
+let lastScene = '' // the last frame under SVG_LIMIT, drawn again should one go over
 const loops = new Set<string>()
 const tasks = new Map<string, string>()
 
@@ -299,8 +301,10 @@ export const register: Register = on => {
   on('ui.render', { component: 'Backdrop' }, ($, e, next) => {
     if (e.props.scene !== SCENE || e.surface !== 'desktop') return next(e)
     const { Svg } = $.ui.resolve(e)
-    // drawn as an image: the interactive frame loads nothing, so it would drop the embedded PNGs
-    return <Svg source={compose(now())} alt="Session Village, un village en pixel art qui vit au rythme de la session" />
+    // every pixel is a vector path: the desktop drops images embedded in a scene
+    const svg = compose(now())
+    if (svg.length <= SVG_LIMIT) lastScene = svg
+    return <Svg source={lastScene || svg} alt="Session Village, un village en pixel art qui vit au rythme de la session" />
   })
 
   // ---------- /village: the legend pane ----------

@@ -1,10 +1,8 @@
 // The engine and the map of the village, edited here (the lab that generated them is in the git history).
 // Session Village: a pixel-art village that lives at the pace of the Claude Code session.
 // Tiles: Kenney Tiny Town, Tiny Dungeon, Tiny Farm (CC0). Actors: Ninja Adventure by Pixel-boy and AAA (CC0).
-import { BAKED } from './data/baked.js';
-import { ATLAS } from './data/atlas.js';
-import { ACTORS } from './data/actors.js';
-const SHEETS = {};
+// The desktop drops images embedded in a scene, so every pixel is a vector path (data/vector.js).
+import { PIXEL_CSS, GROUND_DEFS, GROUND, TILES, ACTORS } from './data/vector.js';
 // Shared engine for every view: session state, path-graph simulation, characters and SVG composition.
 // A view registers itself in VIEWS (see VIEW_CONTRACT.md). The output is one script-free SVG,
 // rebuilt only when the world changes (a few times a minute). Loops keep their phase with negative
@@ -378,12 +376,15 @@ function drawEnt(e,now,D,V){
 }
 
 // Animated actors (Ninja Adventure sheets): 4 columns down/up/left/right, rows 4 walk frames then attack.
-// A nested 16x16 viewport shows one frame; CSS steps move the sheet under it. Sheets used by the frame only.
-let AUSE=new Set();
+// A nested 16x16 viewport shows one frame; CSS steps move the sheet under it. Only what the frame shows is sent:
+// AUSE maps each sheet to its faces, each with the rows it needs (1 standing, 2 walking, 4 attack).
+// LITE, for a frame over budget: the walk cycles stand still, so only standing frames are sent.
+let AUSE=new Map(),LITE=false;
 function actorKey(e,V){const A=V.actors;if(!A||typeof ACTORS==='undefined')return null;const k=e.kind==='hero'?A.hero&&A.hero[S.model]:e.kind==='enemy'?A[e.type]:A[e.skin];return k&&ACTORS[k]?k:null}
 const DIR4=(dx,dy)=>Math.abs(dx)>=Math.abs(dy)?(dx>=0?3:2):(dy>=0?0:1);
 function drawActor(e,now,D,V,s,sc,k){
-  AUSE.add(k);const img=`<use href="#a_${k}"/>`,box=(inner,face)=>`<svg x="-24" y="-46" width="48" height="48" viewBox="${face*16} 0 16 16">${inner}</svg>`;
+  const faces=AUSE.get(k)||new Map(),need=(f,b)=>faces.set(f,(faces.get(f)||0)|(LITE&&b===2?1:b));AUSE.set(k,faces);
+  const walk=(d,n)=>LITE?img:`<g style="${loop('kw4',d,now,'steps(4)',n)}">${img}</g>`;const img=`<use href="#a_${k}"/>`,box=(inner,face)=>`<svg x="-24" y="-46" width="48" height="48" viewBox="${face*16} 0 16 16">${inner}</svg>`;
   let aura='';if(e.kind==='hero'){const a=D.m.a;aura=`<ellipse rx="22" ry="7" fill="${a}" opacity=".3"/><rect x="-24" y="-3" width="48" height="6" fill="none" stroke="${a}" stroke-width="3" class="kc" style="${loop('kaura',1.2+(1-D.eff)*1.4,now,'steps(4)')}"/>`}
   const shadow='<use href="#ksh"/>';
   if(s){
@@ -394,21 +395,22 @@ function drawActor(e,now,D,V,s,sc,k){
     const pc=kt.map(x=>+(x*100).toFixed(1)),id='w'+e.id;
     KF.push(`@keyframes ${id}{${rest.map((p,i)=>`${pc[i]}%{transform:translate(${f(p[0]+e.jx)}px,${f(p[1]+e.jy)}px)}`).join('')}}`);
     const d4=L.map((_,i)=>DIR4(rest[i+1][0]-rest[i][0],rest[i+1][1]-rest[i][1]));e.face=d4[d4.length-1];e.dir=e.face===2?-1:1;
-    const same=d4.every(d=>d===d4[0]);
+    const same=d4.every(d=>d===d4[0]);for(const d of d4)need(d,2);
     if(!same)KF.push(`@keyframes ${id}d{${d4.map((d,i)=>`${pc[i]}%{transform:translateX(${-16*d}px)}`).join('')}100%{transform:translateX(${-16*e.face}px)}}`);
-    const legs=`<g style="animation:kw4 .6s steps(4) ${Math.max(1,Math.ceil(sec/.6))}">${img}</g>`;
+    const legs=LITE?img:`<g style="animation:kw4 .6s steps(4) ${Math.max(1,Math.ceil(sec/.6))}">${img}</g>`;
     const turn=same?`<g transform="translate(${-16*d4[0]},0)">${legs}</g>`:`<g style="animation:${id}d ${dur}s step-end both">${legs}</g>`;
     return `<g style="animation:${id} ${dur}s linear both"><g transform="scale(${f2(sc)})">${shadow}${aura}${box(turn,0)}</g></g>`;
   }
   const face=e.face??0;let body;
+  if(e.state==='sleep')need(0,1);else if(e.state==='dance')need(0,2);else if(e.state==='work'||e.state==='fight')need(face,5);else need(face,e.kind==='enemy'?2:1);
   if(e.state==='sleep')body=`<g transform="translate(22,-20) rotate(-90)">${box(img,0)}</g><g style="${loop('kzz',2.4,now,'steps(4)',e.id*300)}">${pxArt(ZZ,{w:'#3f2631'},-3,-31,3)}${pxArt(ZZ,{w:'#ffffff'},-6,-34,3)}</g>`;
   else if(e.state==='work'||e.state==='fight'){
     const tl=e.state==='fight'?'d104':V.tools&&V.tools[e.skin];let tool='';
     if(tl){TUSE.add(tl);tool=`<g transform="translate(${face===2?-36:6},-40)"><g style="transform-box:fill-box;transform-origin:10% 90%;${loop('kworkp',.5,now,'steps(2)',e.id*90)}"><use href="#${tl}" width="30" height="30"/></g></g>`}
     body=box(`<g style="${loop('katk',.5,now,'step-end',e.id*90)}">${img}</g>`,face)+tool}
-  else if(e.state==='dance'){body=`<g style="${loop('khopp',.5,now,'steps(2)',e.id*97)}">${box(`<g style="${loop('kw4',.6,now,'steps(4)',e.id*50)}">${img}</g>`,0)}</g>`;
+  else if(e.state==='dance'){body=`<g style="${loop('khopp',.5,now,'steps(2)',e.id*97)}">${box(walk(.6,e.id*50),0)}</g>`;
     if(e.notes)for(let i=0;i<2;i++)body+=`<g style="${loop('kzz',1.8,now,'steps(4)',i*900)}">${pxArt(NOTE,{k:'#3f2631',y:'#fee761'},8-i*20,-60,3)}</g>`}
-  else if(e.kind==='enemy')body=box(`<g style="${loop('kw4',1.2,now,'steps(4)',e.id*97)}">${img}</g>`,face);
+  else if(e.kind==='enemy')body=box(walk(1.2,e.id*97),face);
   else body=box(img,face);
   const p=pos(e,now);
   return `<g transform="translate(${f(p[0]+e.jx)},${f(p[1]+e.jy)}) scale(${f2(sc)})">${shadow}${aura}${body}</g>`;
@@ -535,10 +537,16 @@ function woodSign(x,y,{act,col,text,now}){
 // Keyframes are sent only when the frame uses them; KF holds this frame's own (walks, birds).
 let KF=[];const KEYS={};const KRE=/@keyframes ([\w-]+)\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g;
 function keysOf(css){if(!KEYS[css]){const m={};css.replace(KRE,(r,n)=>{m[n]=r;return ''});KEYS[css]={m,base:css.replace(KRE,'').replace(/\s*\n\s*/g,'')}}return KEYS[css]}
+// The colour classes of the vector pixels, only those the frame uses.
+const PCSS=Object.fromEntries(PIXEL_CSS.split('}').filter(Boolean).map(r=>[r.slice(1,r.indexOf('{')),r+'}']));
+function pixelCss(svg){let o='';for(const c of new Set([...svg.matchAll(/class="(p[a-zA-Z]{1,2})"/g)].map(m=>m[1])))o+=PCSS[c]||'';return o}
 function styleFor(svg,V){const A=keysOf(CSS),B=keysOf(V.css||''),used=new Set([...svg.matchAll(/animation:\s*([\w-]+)/g)].map(m=>m[1]));
   let o=A.base+B.base;for(const n of used)o+=A.m[n]||B.m[n]||'';return o+KF.join('')}
-function compose(now){
-  const V=VIEWS[VIEW],D=derive(now);navFor(V);TUSE=new Set();KF=[];AUSE=new Set();
+// The desktop refuses a scene over 131072 characters: a frame over BUDGET is drawn again with LITE.
+const BUDGET=120000;
+function compose(now){let s=composeOnce(now);if(s.length>BUDGET){LITE=true;try{s=composeOnce(now)}finally{LITE=false}}return s}
+function composeOnce(now){
+  const V=VIEWS[VIEW],D=derive(now);navFor(V);TUSE=new Set();KF=[];AUSE=new Map();
   const R=V.draw(now,D);
   const items=(R.props||[]).slice(),need=new Set();
   for(const e of W.ents){if(e.state==='gone'||e.state==='home')continue;need.add(e.skin);const p=pos(e,now);items.push([p[1]+e.jy+(e.zs||0),drawEnt(e,now,D,V)])}
@@ -554,9 +562,9 @@ function compose(now){
   const pxf=PX?`<filter id="kpx" x="0" y="0" width="1600" height="1000" filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse"><feFlood x="${PX/2-1}" y="${PX/2-1}" width="2" height="2"/><feComposite x="0" y="0" width="${PX}" height="${PX}"/><feTile result="a"/><feComposite in="SourceGraphic" in2="a" operator="in"/><feMorphology operator="dilate" radius="${(PX-2)/2}"/></filter>`:'';
   let fw='';if(W.fx.some(x=>x.kind==='firework')){for(let j=0;j<18;j++)fw+=`<g transform="rotate(${j*20})"><circle r="4" fill="${j%2?'#fff':'currentColor'}" style="animation:kburst 1.5s ease-out 1 both;animation-delay:var(--fd,0s)"/></g>`;fw=`<g id="kfw">${fw}</g>`}
   if(V.sprites)need.clear();if(W.ents.some(e=>e.kind==='cart'))need.add('cart');
-  const defs=`<defs>${pxf}${fw}${charDefs(D,V,need)}${D.storm>0?`<pattern id="krainp" width="80" height="120" patternUnits="userSpaceOnUse"><path d="M20 0 l-6 22 M62 40 l-6 22 M40 84 l-6 22" stroke="#d4dcff" stroke-opacity=".6" stroke-width="1.8"/></pattern>`:''}${V.sprites?'<ellipse id="ksh" rx="15" ry="5" fill="#3f2631" opacity=".28"/>':''}${[...AUSE].map(k=>`<image id="a_${k}" href="${ACTORS[k]}" width="64" height="80" style="image-rendering:pixelated"/>`).join('')}${R.defs||''}${tileDefs()}</defs>`;
+  const defs=`<defs>${pxf}${fw}${charDefs(D,V,need)}${D.storm>0?`<pattern id="krainp" width="80" height="120" patternUnits="userSpaceOnUse"><path d="M20 0 l-6 22 M62 40 l-6 22 M40 84 l-6 22" stroke="#d4dcff" stroke-opacity=".6" stroke-width="1.8"/></pattern>`:''}${V.sprites?'<ellipse id="ksh" rx="15" ry="5" fill="#3f2631" opacity=".28"/>':''}${[...AUSE].map(([k,fs])=>`<g id="a_${k}" transform="translate(0 .5)">${[...fs].map(([c,b])=>{const A=ACTORS[k][c];return (b&2?A[1]:b&1?A[0]:'')+(b&4?A[2]:'')}).join('')}</g>`).join('')}${R.defs||''}${tileDefs()}</defs>`;
   const body=(defs+o).replace(/ shape-rendering="crispEdges"/g,'');
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" shape-rendering="crispEdges" role="img" aria-label="${esc(V.name)}"><style>${styleFor(body,V)}</style>${body}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" shape-rendering="crispEdges" role="img" aria-label="${esc(V.name)}"><style>${pixelCss(body)}${styleFor(body,V)}</style>${body}</svg>`;
 }
 const VIEWS={};
 
@@ -565,12 +573,8 @@ const VIEWS={};
 const TS=48;let TUSE=new Set();
 function T(id,x,y,o=''){TUSE.add(id);return `<use href="#${id}" x="${x}" y="${y}"${o}/>`}
 function TF(id,x,y){TUSE.add(id);return `<use href="#${id}" transform="translate(${x+TS},${y}) scale(-1,1)"/>`}
-function tileDefs(){const used=new Set();let s='',atl=false;const A=typeof ATLAS!=='undefined'?ATLAS:null;
-  for(const id of TUSE){const a=A?A.ids.indexOf(id):-1;
-    if(a>=0){atl=true;s+=`<symbol id="${id}" viewBox="${(a%A.cols)*16} ${Math.floor(a/A.cols)*16} 16 16" width="48" height="48"><use href="#SA"/></symbol>`}
-    else{const k=id[0],i=+id.slice(1);used.add(k);s+=`<symbol id="${id}" viewBox="${(i%12)*16} ${Math.floor(i/12)*16} 16 16" width="48" height="48"><use href="#S${k}"/></symbol>`}}
-  let im=atl?`<image id="SA" href="${A.src}" width="${A.cols*16}" height="${Math.ceil(A.ids.length/A.cols)*16}" style="image-rendering:pixelated"/>`:'';
-  for(const k of used)im+=`<image id="S${k}" href="${SHEETS[k]}" width="192" height="176" style="image-rendering:pixelated"/>`;return im+s}
+// A tile's strokes sit on whole rows, so its viewBox starts half a pixel up.
+function tileDefs(){let s='';for(const id of TUSE)if(TILES[id])s+=`<symbol id="${id}" viewBox="0 -.5 16 16" width="48" height="48">${TILES[id]}</symbol>`;return s}
 // Pixel art from strings: one char per pixel, pal maps chars to colours, '.' is empty. s = units per pixel.
 function pxArt(rows,pal,x=0,y=0,s=3,extra=''){
   const by={};rows.forEach((row,j)=>{let i=0;while(i<row.length){const ch=row[i];if(ch==='.'||!pal[ch]){i++;continue}let k=i;while(k<row.length&&row[k]===ch)k++;(by[ch]=by[ch]||[]).push(`M${x+i*s} ${y+j*s}h${(k-i)*s}v${s}h${-(k-i)*s}z`);i=k}});
@@ -816,14 +820,11 @@ VIEWS.valley={
   bake(){return {svg:staticWorld(),defs:STATIC_DEFS}},
   draw(now,D){
     const L=[];HUD=[];for(const k in WIN)for(const[c,r]of WIN[k])L.push([X(c)+15,Y(r)+12,18,18,'#ffcf6a']);
-    const baked=typeof BAKED!=='undefined';
-    let g=baked?`<image href="${BAKED}" width="1632" height="1008" style="image-rendering:pixelated"/>`:staticWorld();
-    if(!baked)for(const id of STATIC_IDS)TUSE.add(id);
-    g+=waterLife(now);
+    let g=GROUND+waterLife(now);
     const props=[mine(D,now,L),tower(D,now,L),castle(D,now,L),workshop(D,now,L),library(D,now,L),post(D,now,L),guild(D,now,L),watch(D,now,L),bank(D,now,L),...farm(D,now,L),...plaza(D,now,L)].filter(Boolean);
     props.push([Y(7),smoke(X(26)+24,Y(6)-6,now,1,'#e8e4ee',2,500)]);
     const top='';
-    return {ground:g,props,top,lights:L,hud:HUD.join(''),defs:baked?'':STATIC_DEFS+`<pattern id="vfog1" width="6" height="6" patternUnits="userSpaceOnUse"><path d="M0 0h3v3h-3zM3 3h3v3h-3z" fill="#7a2fb0"/></pattern><pattern id="vfog2" width="12" height="12" patternUnits="userSpaceOnUse"><path d="M0 0h3v3h-3zM6 6h3v3h-3z" fill="#9b4ca3"/></pattern>`};
+    return {ground:g,props,top,lights:L,hud:HUD.join(''),defs:GROUND_DEFS};
   },
   mist(D,now){
     if(D.ctx<.04)return '';
