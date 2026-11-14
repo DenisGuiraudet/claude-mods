@@ -58,6 +58,40 @@ test('the first message wakes the village, a full context brings the fog', async
   expect(svg.length).toBeLessThan(131072)
 })
 
+// Each compaction casts one spell over the hero.
+const spells = (svg: string) => svg.split('animation:kspell ').length - 1
+const fill = (tokens: number, window = 200000) => ({
+  context: { window, tokens, percent: Math.round((tokens / window) * 100) },
+  rateLimits: [],
+  changed: ['context' as const],
+})
+
+test('a sharp context drop casts the compaction spell once, even when session.compact is not seen', async ($, on) => {
+  engine(on)
+  on('session.compact', (_, e) => ({ messages: e.messages }))
+  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
+  await $.prompt.submit({ text: 'Corrige le test du panier', wait: false, origin: { kind: 'composer' } })
+  await $.session.measure(fill(170000))
+  expect(spells(await svgOf($))).toBe(0)
+  // another plugin answered session.compact: only the fill tells, 85 % down to 15 %
+  await $.session.measure(fill(30000))
+  const cast = spells(await svgOf($))
+  expect(cast).toBeGreaterThan(0)
+  // session.compact coming through afterwards is the same compaction
+  await $.session.compact({ trigger: 'auto', messages: [{ role: 'user', text: 'Résumé', toolUses: [] }] })
+  await $.session.measure(fill(12000))
+  expect(spells(await svgOf($))).toBe(cast)
+})
+
+test('a model switch to a larger window is not a compaction', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
+  await $.prompt.submit({ text: 'Corrige le test du panier', wait: false, origin: { kind: 'composer' } })
+  await $.session.measure(fill(120000))
+  await $.session.measure(fill(121000, 1000000))
+  expect(spells(await svgOf($))).toBe(0)
+})
+
 test('other surfaces keep their own backdrop', async ($, on) => {
   engine(on)
   on('ui.render', ($, e) => {

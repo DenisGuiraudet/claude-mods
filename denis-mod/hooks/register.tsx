@@ -15,6 +15,7 @@ type $T = EngineInterface
 const SCENE = 'valley'
 const PANE = 'vallee'
 const MIN_GAP = 1500 // ms between two frames for small changes; events go out at once
+const COMPACT_GAP = 30_000 // ms: session.compact and the context drop are one compaction
 const now = () => Date.now()
 
 let lastTick = 0
@@ -22,6 +23,8 @@ let lastDraw = 0
 let pending: { cancel: () => void } | null = null
 let cwd = ''
 let branch = ''
+let ctxTokens: number | undefined // last context fill session.measure reported, in tokens
+let lastCompact = 0
 const loops = new Set<string>()
 const tasks = new Map<string, string>()
 
@@ -69,6 +72,20 @@ const TOOL: Record<string, Activity> = {
   WebFetch: 'web', WebSearch: 'web',
 }
 const toolActivity = (tool: string): Activity | null => TOOL[tool] ?? (tool.startsWith('mcp__') ? 'web' : null)
+
+// ---------- compaction: session.compact, or a sharp context drop when another plugin answered it ----------
+function compacted($: $T): void {
+  ctxTokens = undefined
+  const t = now()
+  if (t - lastCompact < COMPACT_GAP) return
+  lastCompact = t
+  evCompact(t)
+  draw($, true)
+}
+// Halved and down by a fifth of the window at least; counted in tokens so a model switch to a
+// larger window does not look like a drop.
+const isCompactDrop = (before: number, after: number, window: number): boolean =>
+  after <= before / 2 && before - after >= window / 5
 
 function setTasks(): void {
   S.todoTotal = Math.min(10, tasks.size)
@@ -123,6 +140,7 @@ export const register: Register = on => {
     const [usage, model, turns] = await Promise.all([$.session.usage(), $.session.model(), $.session.turns()])
     S.model = modelKey(model)
     S.context = Math.round(usage.context.percent ?? 0)
+    ctxTokens = usage.context.tokens
     S.rate = Math.round(usage.rateLimits.find(r => r.kind === 'five_hour')?.percentUsed ?? 0)
     S.cost = usage.cost?.usd ?? 0
     S.activity = 'idle'
@@ -238,6 +256,12 @@ export const register: Register = on => {
 
   on('session.measure', ($, e, next) => {
     if (e.context.percent !== undefined) S.context = Math.round(e.context.percent)
+    const { window } = e.context
+    const tokens = e.context.tokens ?? (e.context.percent !== undefined ? (e.context.percent / 100) * window : undefined)
+    if (tokens !== undefined) {
+      if (ctxTokens !== undefined && isCompactDrop(ctxTokens, tokens, window)) compacted($)
+      ctxTokens = tokens
+    }
     const five = e.rateLimits.find(r => r.kind === 'five_hour')
     if (five) S.rate = Math.round(five.percentUsed)
     if (e.cost) S.cost = e.cost.usd
@@ -247,8 +271,8 @@ export const register: Register = on => {
 
   on('session.compact', async ($, e, next) => {
     const done = await next(e)
-    evCompact(now())
-    draw($, true)
+    // a precompute installs nothing and a skip leaves the conversation as it is
+    if (e.trigger !== 'precompute' && done.skip === undefined) compacted($)
     return done
   }).catch(($, e, next) => next(e))
 
