@@ -1,19 +1,14 @@
 {
   "name": "denis-claude-mods",
-  "description": "Pixel mods for Claude Code: bubble replies on a meadow and a bunny loading line",
+  "description": "Pixel mods for Claude Code: La Vallée, an RPG village behind the conversation that lives at the pace of the session",
   "owner": {
     "name": "Denis Guiraudet"
   },
   "plugins": [
     {
-      "name": "meadow",
-      "source": "./meadow",
-      "description": "Claude's replies as pixel bubbles: a short sky and hill on top, a strip of grass under the last block"
-    },
-    {
-      "name": "bunny-spinner",
-      "source": "./bunny-spinner",
-      "description": "The loading line speaks as a pixel bunny"
+      "name": "denis-mod",
+      "source": "./denis-mod",
+      "description": "A pixel-art RPG village behind the conversation that lives at the pace of the session: model, effort, context, limits, cost, tools, tasks and PR waves"
     }
   ]
 }
