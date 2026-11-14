@@ -1,0 +1,319 @@
+<title>Backdrop Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a lab bench. Four game worlds on top, live world on the left, session simulator on the right; stacks on phones. Deliberately dark-only. */
+:root{
+  color-scheme: dark;
+  --bg:#0b0c10;
+  --panel:#12141b;
+  --panel-2:#181b24;
+  --line:#272b38;
+  --fg:#ecedf2;
+  --muted:#a6abbb;
+  --accent:#b38bff;
+  --bad:#ff5e6c;
+  --good:#6dffb3;
+  --display:"Unbounded","Space Grotesk",system-ui,sans-serif;
+  --body:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+html,body{background:var(--bg);color:var(--fg)}
+body{font-family:var(--body);font-size:14px;line-height:1.5;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:22px 48px}
+.wrap{max-width:1440px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+h1,h2,h3{font-family:var(--display);font-weight:700;margin:0;text-wrap:balance}
+h1{font-size:clamp(22px,3vw,32px);letter-spacing:-.01em}
+h2{font-size:15px;font-weight:500;letter-spacing:.02em}
+h3{font-family:var(--body);font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+p{margin:0}
+.lede{color:var(--muted);max-width:76ch}
+.head{display:flex;flex-direction:column;gap:8px}
+.eyebrow{font-family:var(--mono);font-size:12px;color:var(--accent);letter-spacing:.06em}
+
+.views{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.view{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;gap:4px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel);transition:border-color .2s,background .2s}
+.view:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+.view:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.view small{font-family:var(--mono);font-size:11px;color:var(--accent);letter-spacing:.04em}
+.view b{font-family:var(--display);font-weight:500;font-size:14px}
+.view span{color:var(--muted);font-size:12.5px;line-height:1.4}
+.view em{font-style:normal;font-size:11.5px;color:var(--fg);opacity:.75}
+.view[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--panel))}
+
+.bench{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;align-items:start}
+.stage-col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.stage{position:relative;width:100%;aspect-ratio:16/10;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:#000;margin-inline:auto}
+#scene,#scene>svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+
+.mock{position:absolute;inset:0;display:grid;grid-template-columns:18.5% minmax(0,1fr);pointer-events:none}
+.mock.noside{grid-template-columns:minmax(0,1fr)}
+.mock.noside .m-side{display:none}
+.mock[hidden]{display:none!important}
+/* Legend pane: what the mod's /vallee pane will show, docked on the right, open or closed */
+.lpane{position:absolute;z-index:2;top:10px;right:10px;bottom:10px;width:min(320px,36%);border-radius:12px;padding:12px 12px 10px;display:flex;flex-direction:column;gap:8px;overflow:auto;color:#e7eaf2;font-size:12px;line-height:1.35}
+.lpane[hidden]{display:none}
+.lpane header{display:flex;align-items:center;gap:8px}
+.lpane header b{font-family:var(--display);font-weight:500;font-size:13px;flex:1}
+.lpane header code{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.lpane .x{all:unset;cursor:pointer;width:22px;height:22px;display:grid;place-items:center;border-radius:6px;color:#e7eaf2}
+.lpane .x:hover{background:rgba(255,255,255,.1)}
+.lpane .x:focus-visible{outline:2px solid var(--accent)}
+.lpane ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.lpane li{display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:2px 8px;align-items:baseline}
+.lpane li i{width:10px;height:10px;border-radius:2px;align-self:center}
+.lpane li b{font-weight:600}
+.lpane li em{font-style:normal;font-family:var(--mono);font-size:11px;color:var(--fg);white-space:nowrap}
+.lpane li span{grid-column:2/-1;color:rgba(231,234,242,.65);font-size:11.5px}
+.lpane li.on b{color:#fee761}
+.lpane h4{margin:4px 0 0;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.glass{background:rgba(12,14,20,.55);backdrop-filter:blur(16px) saturate(1.15);-webkit-backdrop-filter:blur(16px) saturate(1.15);border:1px solid rgba(255,255,255,.06)}
+.m-side{margin:10px;border-radius:12px;padding:12px 10px;display:flex;flex-direction:column;gap:8px}
+.m-side i{display:block;height:9px;border-radius:5px;background:rgba(255,255,255,.12)}
+.m-side i:nth-child(1){width:60%;background:rgba(255,255,255,.22)}
+.m-main{display:flex;flex-direction:column;gap:10px;padding:16px 0 14px;min-width:0;width:62.3%;margin-inline:auto}
+.mock.noside .m-main{width:50.8%}
+.m-msg{border-radius:12px;padding:10px 12px;font-size:11.5px;line-height:1.45;color:#e7eaf2;max-width:88%}
+.m-msg.user{align-self:flex-end;background:rgba(255,255,255,.12)}
+.m-msg em{font-style:normal;font-family:var(--mono);font-size:10.5px;color:var(--accent)}
+.m-spacer{flex:1}
+.m-prompt{border-radius:14px;padding:12px 14px;font-size:11.5px;color:rgba(231,234,242,.6)}
+
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.toolbar .grow{flex:1}
+.chip{font-family:var(--mono);font-size:12px;color:var(--muted);padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.chip.live{color:var(--fg);border-color:var(--accent)}
+.chip.live::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:8px;vertical-align:1px;animation:ui-blink 1s ease-in-out infinite}
+@keyframes ui-blink{50%{opacity:.25}}
+
+.btn{all:unset;box-sizing:border-box;cursor:pointer;font-size:12.5px;font-weight:500;padding:7px 12px;border-radius:9px;border:1px solid var(--line);background:var(--panel-2);color:var(--fg);transition:border-color .15s,background .15s;text-align:center}
+.btn:hover{border-color:color-mix(in srgb,var(--accent) 50%,var(--line))}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#0b0c10;font-weight:600}
+.btn.danger{border-color:color-mix(in srgb,var(--bad) 50%,var(--line));color:var(--bad)}
+.btn[aria-pressed="true"]{background:color-mix(in srgb,var(--accent) 18%,var(--panel-2));border-color:var(--accent)}
+
+.legend{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.legend ul{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px 18px}
+.legend li{display:grid;grid-template-columns:12px minmax(0,1fr);gap:10px;align-items:start;font-size:13px}
+.legend li i{width:12px;height:12px;border-radius:3px;margin-top:4px}
+.legend li b{font-weight:600}
+.legend li span{color:var(--muted)}
+
+.rack{border:1px solid var(--line);border-radius:14px;background:var(--panel);display:flex;flex-direction:column}
+.rack section{padding:14px 16px;display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line)}
+.rack section:first-child{border-top:0}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg .btn{flex:1 1 auto;padding:6px 8px;font-size:12px}
+.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center}
+.row label{font-size:12.5px;color:var(--muted)}
+.row output{font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums}
+.row input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--accent);margin:0}
+.trio{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
+
+.note{color:var(--muted);font-size:13px;max-width:84ch}
+.sources{border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:16px;display:flex;flex-direction:column;gap:10px}
+.sources a{color:var(--accent)}
+
+@media (max-width:1000px){.bench{grid-template-columns:minmax(0,1fr)}.views{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:520px){.trio{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){#scene *{animation:none!important}.chip.live::before{animation:none}}
+</style>
+
+<div class="wrap">
+  <header class="head">
+    <div class="eyebrow">claude-mods · backdrop</div>
+    <h1>La Vallée, centre libre</h1>
+    <p class="lede">Les signaux clés sont à droite, la seule zone toujours visible quand la barre latérale est ouverte : le château pour les waves, la tour du mage pour le modèle, l'effort et la limite 5 h, le bois hanté pour le contexte, la banque pour le coût. À gauche, sous la barre latérale : la mine, l'atelier, la bibliothèque, la poste, la ferme et la guilde, d'où les aventuriers traversent la carte pour aller combattre. Le centre reste un pré calme. Le bouton « Légende » ouvre le panneau que le mod affichera avec <code>/vallee</code>.</p>
+  </header>
+
+  <nav class="views" id="views" aria-label="Choisir un monde"></nav>
+
+  <div class="bench">
+    <div class="stage-col">
+      <div class="stage" id="stage" data-device="desktop">
+        <div id="scene"></div>
+        <aside class="lpane glass" id="lpane" hidden aria-label="Légende de la Vallée">
+          <header><b>Légende</b><code>/vallee</code><button class="x" id="lpane-x" aria-label="Fermer la légende">✕</button></header>
+          <h4>À droite, toujours visible</h4><ul id="lp-right"></ul>
+          <h4>À gauche</h4><ul id="lp-left"></ul>
+          <h4>Partout</h4><ul id="lp-all"></ul>
+        </aside>
+        <div class="mock" id="mock" aria-hidden="true">
+          <div class="m-side glass"><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="m-main">
+            <div class="m-msg user glass">Corrige le test du panier puis ouvre la PR</div>
+            <div class="m-msg glass">Je lance <em>bun test</em> pour voir ce qui casse.</div>
+            <div class="m-msg glass">Le test passe. Je pousse la branche et j'ouvre la PR.</div>
+            <div class="m-spacer"></div>
+            <div class="m-prompt glass">Répondre à Claude…</div>
+          </div>
+        </div>
+      </div>
+      <div class="toolbar">
+        <button class="btn" id="toggle-mock" aria-pressed="true">Interface visible</button>
+        <button class="btn" id="toggle-side" aria-pressed="true">Barre latérale</button>
+        <button class="btn" id="toggle-labels" aria-pressed="true">Enseignes</button>
+        <button class="btn" id="toggle-pane" aria-pressed="false">Légende</button>
+        <span class="grow"></span>
+        <span class="chip" id="stats">SVG</span>
+        <span class="chip" id="status">Prêt</span>
+        <button class="btn primary" id="play">Lancer le scénario</button>
+      </div>
+      <div class="legend">
+        <h2 id="legend-title">Ce que montre chaque lieu</h2>
+        <ul id="legend"></ul>
+      </div>
+    </div>
+
+    <aside class="rack" aria-label="Simuler la session">
+      <section>
+        <h3>Session</h3>
+        <div class="seg" id="c-started"></div>
+      </section>
+      <section>
+        <h3>Modèle, classe du héros</h3>
+        <div class="seg" id="c-model"></div>
+        <h3>Effort</h3>
+        <div class="seg" id="c-effort"></div>
+      </section>
+      <section>
+        <h3>Activité</h3>
+        <div class="seg" id="c-activity"></div>
+        <div class="trio">
+          <button class="btn" id="ev-prompt">Message</button>
+          <button class="btn danger" id="ev-error">Erreur</button>
+          <button class="btn" id="ev-compact">Compaction</button>
+          <button class="btn" id="ev-random">Au hasard</button>
+        </div>
+      </section>
+      <section>
+        <h3>Contexte et quotas</h3>
+        <div class="row"><label for="r-context">Contexte, la menace avance</label><output id="o-context"></output><input type="range" id="r-context" min="0" max="100" step="1"></div>
+        <div class="row"><label for="r-rate">Limite 5 h, heure du jour</label><output id="o-rate"></output><input type="range" id="r-rate" min="0" max="100" step="1"></div>
+        <div class="row"><label for="r-cost">Coût, or accumulé</label><output id="o-cost"></output><input type="range" id="r-cost" min="0" max="12" step="0.1"></div>
+        <div class="row"><label for="r-subagents">Sous-agents, aventuriers</label><output id="o-subagents"></output><input type="range" id="r-subagents" min="0" max="5" step="1"></div>
+      </section>
+      <section>
+        <h3>Waves</h3>
+        <div class="row"><label for="r-total">Nombre de waves</label><output id="o-total"></output><input type="range" id="r-total" min="1" max="5" step="1"></div>
+        <div class="row"><label for="r-current">Wave en cours</label><output id="o-current"></output><input type="range" id="r-current" min="1" max="5" step="1"></div>
+        <div class="seg" id="c-steps"></div>
+        <button class="btn primary" id="ev-merge">Merger la wave</button>
+      </section>
+      <section>
+        <h3>Tâches</h3>
+        <div class="row"><label for="r-todo">Tâches terminées</label><output id="o-todo"></output><input type="range" id="r-todo" min="0" max="10" step="1"></div>
+        <div class="row"><label for="r-todo-total">Tâches au total</label><output id="o-todo-total"></output><input type="range" id="r-todo-total" min="1" max="10" step="1"></div>
+      </section>
+    </aside>
+  </div>
+
+  <section class="sources">
+    <h2>Inspirations</h2>
+    <p class="note" id="sources-text"></p>
+    <p class="note">Optimisation, mesurée dans Chromium sur ce labo : le décor fixe est une seule image PNG de 15 ko, les tuiles qui bougent tiennent dans un atlas de 2,4 ko, chaque personnage animé est un petit PNG d'environ 1 ko envoyé seulement s'il est à l'écran, les déplacements sont des animations CSS (les animations SMIL tenaient le processeur occupé même à l'arrêt) et le monde n'est redessiné que s'il a changé. Avant : 83 à 104 ko par image, 210 à 270 ms de calcul par seconde au repos, 63 images par minute. Après : 46 à 81 ko, 1 à 21 ms par seconde, 0 image par minute avant la session, 8 au repos, 12 en plein travail.</p>
+    <p class="note">Maquette d'interface : une fenêtre de 1512 px avec une colonne de conversation de 768 px et la barre latérale ouverte, ce qui est une hypothèse. Le bouton « Barre latérale » montre l'autre cas. Le rendu réel dans l'app Desktop reste à vérifier.</p>
+  </section>
+</div>
+
+<script src="sheets.js"></script>
+<script src="baked.js"></script>
+<script src="atlas.js"></script>
+<script src="actors.js"></script>
+<script src="engine.js"></script>
+<script src="view-valley.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const ORDER=()=>Object.keys(VIEWS).sort((a,b)=>VIEWS[a].order-VIEWS[b].order);
+if(!VIEWS[VIEW])VIEW=ORDER()[0];
+let lastRender=0,lastTick=0;const renders=[];
+// The simulation steps on a slow tick (3 s, 6 s when nothing happens) and a frame is drawn only when
+// the world changed, or at once on an event. That is what the mod will do with $.clock and $.ui.invalidate.
+function frame(force){
+  const V=VIEWS[VIEW];if(!V)return;
+  const now=Date.now(),calm=!S.started||(S.activity==='idle'&&!W.fx.length&&!W.fires.length),tick=calm?8000:5000;
+  if(!force&&now-lastTick<tick)return;
+  lastTick=now;step(now);
+  if(force||W.dirty){
+    W.dirty=false;lastRender=now;const svg=compose(now);$('scene').innerHTML=svg;renders.push(now);
+    while(renders.length&&renders[0]<now-60000)renders.shift();
+    $('stats').textContent=`SVG ${Math.round(svg.length/1024)} ko / 128 ko · ${renders.length} images/min`;
+    document.documentElement.style.setProperty('--accent',MODELS[S.model].a);
+  }
+}
+function seg(id,items,get,set){const el=$(id);el.setAttribute('role','group');el.innerHTML=items.map(([v,l])=>`<button class="btn" data-v="${v}" aria-pressed="false">${l}</button>`).join('');el.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;set(b.dataset.v);sync();frame(true)});return()=>el.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(get(b.dataset.v))))}
+const syncers=[];
+syncers.push(seg('c-started',[['no','Pas encore lancée'],['yes','Lancée']],v=>S.started===(v==='yes'),v=>{const now=Date.now();if(v==='yes'&&!S.started)wake(now);else if(v==='no'){S.started=false;for(const e of W.ents)e.until=0;W.dirty=true}}));
+syncers.push(seg('c-model',Object.entries(MODELS).map(([k,v])=>[k,v.name.split(' ')[0]+' · '+v.cls]),v=>S.model===v,v=>{S.model=v;legend()}));
+syncers.push(seg('c-effort',EFFORT_KEYS.map(k=>[k,k]),v=>S.effort===v,v=>S.effort=v));
+syncers.push(seg('c-activity',[['idle','Au repos'],['thinking','Réfléchit'],['bash','Bash'],['edit','Edit'],['read','Read'],['web','Web']],v=>S.activity===v,v=>{S.activity=v;retarget(Date.now())}));
+syncers.push(seg('c-steps',[['commit','Commit'],['push','Push'],['pr','PR ouverte']],v=>S.steps[v],v=>{S.steps[v]=!S.steps[v];const now=Date.now();if(S.steps[v]&&v==='commit')evCommit(now);if(S.steps[v]&&v==='push')evPush(now)}));
+function range(id,key,fmt){const el=$('r-'+id);el.addEventListener('input',()=>{S[key]=Number(el.value);sync();frame(true)});syncers.push(()=>{el.value=S[key];$('o-'+id).textContent=fmt(S[key])})}
+range('context','context',v=>v+' %');range('rate','rate',v=>v+' %');range('cost','cost',v=>'$'+v.toFixed(2));range('subagents','subagents',v=>String(v));
+range('total','wavesTotal',v=>String(v));range('current','waveCurrent',v=>v+' / '+S.wavesTotal);
+range('todo','todoDone',v=>v+' / '+S.todoTotal);range('todo-total','todoTotal',v=>String(v));
+function sync(){S.waveCurrent=Math.min(S.waveCurrent,S.wavesTotal);S.todoDone=Math.min(S.todoDone,S.todoTotal);$('r-current').max=S.wavesTotal;$('r-todo').max=S.todoTotal;syncers.forEach(s=>s());document.querySelectorAll('.view').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===VIEW)))}
+
+$('views').innerHTML=ORDER().map(k=>{const v=VIEWS[k];return `<button class="view" data-view="${k}" aria-pressed="false"><small>${v.tag}</small><b>${v.name}</b><span>${v.desc}</span><em>${v.game}</em></button>`}).join('');
+$('views').addEventListener('click',e=>{const b=e.target.closest('.view');if(!b||b.dataset.view===VIEW)return;VIEW=b.dataset.view;newWorld(Date.now());sync();legend();frame(true)});
+function legend(){const V=VIEWS[VIEW],D=derive(Date.now());$('legend-title').textContent=`${V.name} : ce que montre chaque lieu`;
+  $('legend').innerHTML=Object.keys(SIG).filter(id=>V.places[id]).map(id=>{const p=V.places[id];return `<li><i style="background:${sigCol(id,D)}"></i><div><b>${p.name}</b> <span>(${SIG[id].what}) ${p.note}</span></div></li>`}).join('')+(V.extraLegend||[]).map(([n,t,c])=>`<li><i style="background:${c}"></i><div><b>${n}</b> <span>${t}</span></div></li>`).join('')}
+$('sources-text').innerHTML=ORDER().map(k=>VIEWS[k].sources?`<b>${VIEWS[k].name}</b> : ${VIEWS[k].sources}`:'').filter(Boolean).join('<br>');
+
+let advT=0;
+function mergeWave(){if(S.steps.merged&&S.waveCurrent>=S.wavesTotal)return;S.steps.merged=true;evMerge(Date.now());sync();frame(true);clearTimeout(advT);advT=setTimeout(()=>{if(S.waveCurrent<S.wavesTotal){S.waveCurrent++;S.steps={commit:false,push:false,pr:false,merged:false};S.todoDone=0}sync();frame(true)},4200)}
+$('ev-merge').onclick=mergeWave;
+$('ev-error').onclick=()=>{evError(Date.now());frame(true)};
+$('ev-compact').onclick=()=>{S.context=Math.max(8,Math.round(S.context*.3));evCompact(Date.now());sync();frame(true)};
+$('ev-random').onclick=()=>{const now=Date.now();if(!S.started){wake(now);sync()}const a=ambient(now,derive(now),VIEWS[VIEW]);$('status').textContent=a?a.name:'Rien cette fois';frame(true)};
+$('ev-prompt').onclick=()=>{evPrompt(Date.now());frame(true)};
+$('toggle-side').onclick=e=>{const m=$('mock');m.classList.toggle('noside');e.currentTarget.setAttribute('aria-pressed',String(!m.classList.contains('noside')))};
+$('toggle-mock').onclick=e=>{const m=$('mock');m.hidden=!m.hidden;e.currentTarget.setAttribute('aria-pressed',String(!m.hidden));e.currentTarget.textContent=m.hidden?'Interface masquée':'Interface visible'};
+// Legend pane: live values, the place that is active right now in yellow
+const SIDE={waves:'r',think:'r',context:'r',cost:'r',bash:'l',edit:'l',read:'l',web:'l',todo:'l',agents:'l'};
+function pane(){if($('lpane').hidden)return;const V=VIEWS[VIEW],now=Date.now(),D=derive(now);
+  const row=id=>{const p=V.places[id];return `<li class="${sigActive(id,now)?'on':''}"><i style="background:${sigCol(id,D)}"></i><b>${p.name}</b><em>${sigValue(id)}</em><span>${p.look}</span></li>`};
+  $('lp-right').innerHTML=Object.keys(SIDE).filter(k=>SIDE[k]==='r').map(row).join('');
+  $('lp-left').innerHTML=Object.keys(SIDE).filter(k=>SIDE[k]==='l').map(row).join('');
+  $('lp-all').innerHTML=(V.extraLook||[]).map(([n,t,c])=>`<li><i style="background:${c}"></i><b>${n}</b><em></em><span>${t}</span></li>`).join('')}
+function setPane(open){$('lpane').hidden=!open;$('toggle-pane').setAttribute('aria-pressed',String(open));pane()}
+$('toggle-pane').onclick=()=>setPane($('lpane').hidden);$('lpane-x').onclick=()=>setPane(false);
+setInterval(pane,1000);
+$('toggle-labels').onclick=e=>{LABELS=!LABELS;e.currentTarget.setAttribute('aria-pressed',String(LABELS));frame(true)};
+
+const SCRIPT=[
+  [0,'Avant la session : le village dort',{started:false,activity:'idle',context:0,rate:2,todoDone:0,todoTotal:5,subagents:0,cost:0,steps:{commit:false,push:false,pr:false,merged:false}}],
+  [2500,'Premier message : le soleil se lève',{event:'prompt'}],
+  [4000,'Claude réfléchit',{activity:'thinking',context:14,rate:14}],
+  [7000,'Read',{activity:'read',context:24,todoDone:1,cost:.6,rate:24}],
+  [10000,'Deux sous-agents partent',{subagents:2,context:34,rate:32}],
+  [13000,'Bash',{activity:'bash',context:42,todoDone:2,cost:1.1,rate:40}],
+  [14500,'Le test casse : incendie',{event:'error'}],
+  [20000,'Edit',{activity:'edit',context:52,todoDone:3,subagents:1,rate:48}],
+  [23000,'Commit',{todoDone:4,rate:54,steps:{commit:true},event:'commit'}],
+  [25500,'Push : le convoi part',{activity:'web',todoDone:5,cost:1.8,rate:60,steps:{push:true},event:'push'}],
+  [28500,'PR ouverte',{activity:'idle',subagents:0,rate:66,steps:{pr:true}}],
+  [29500,'Au hasard : un marchand',{event:'ambient',id:'merchant'}],
+  [31500,'Le contexte sature',{activity:'thinking',context:90,rate:72,cost:2.6}],
+  [34500,'Au hasard : un dragon survole',{event:'ambient',id:'shadow'}],
+  [37000,'Compaction',{context:24,event:'compact'}],
+  [40000,'Wave mergée : la fête',{activity:'idle',rate:78,event:'merge'}],
+  [44000,'Au hasard : un barde',{event:'ambient',id:'bard'}],
+  [47000,'La nuit tombe',{rate:96}],
+  [50000,'Au hasard : une étoile filante',{event:'ambient',id:'star'}],
+  [53000,'Fin du scénario',{}],
+];
+let timers=[];
+function stopScenario(){timers.forEach(clearTimeout);timers=[];$('play').textContent='Lancer le scénario';$('status').classList.remove('live')}
+function applyPatch(patch){const now=Date.now();const{steps,event,id,...rest}=patch;const act=rest.activity&&rest.activity!==S.activity;Object.assign(S,rest);if(steps)S.steps={...S.steps,...steps};if(act)retarget(now);
+  if(event==='prompt')evPrompt(now);else if(event==='error')evError(now);else if(event==='compact')evCompact(now);else if(event==='merge')mergeWave();else if(event==='commit')evCommit(now);else if(event==='push')evPush(now);else if(event==='ambient')ambient(now,derive(now),VIEWS[VIEW],id);sync();frame(true)}
+$('play').onclick=()=>{
+  if(timers.length){stopScenario();$('status').textContent='Scénario arrêté';return}
+  $('play').textContent='Arrêter';$('status').classList.add('live');
+  SCRIPT.forEach(([t,lab,patch],i)=>timers.push(setTimeout(()=>{$('status').textContent=lab;applyPatch(patch);if(i===SCRIPT.length-1)stopScenario()},t)));
+};
+
+newWorld(Date.now());sync();legend();frame(true);setInterval(()=>frame(false),250);
+</script>
