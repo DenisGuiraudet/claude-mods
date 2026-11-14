@@ -2,13 +2,13 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 const BACKDROP = {
-  plugin: 'valley',
+  plugin: 'denis-mod',
   component: 'Backdrop',
-  props: { scene: 'valley', plugin: 'valley', glass: { blur: 16, opacity: 0.6 } },
+  props: { scene: 'valley', plugin: 'denis-mod', glass: { blur: 16, opacity: 0.6 } },
 } as const
 
 const PANE = {
-  plugin: 'valley',
+  plugin: 'denis-mod',
   component: 'Pane',
   requestId: 'vallee',
   props: { title: 'La Vallée', isFocused: false, bodyColumns: 48, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },

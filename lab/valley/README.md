@@ -1,6 +1,6 @@
 # Labo de La Vallée
 
-Le banc d'essai du mod `valley` : la même scène que le mod, pilotée à la main ou par un scénario, avec la maquette de l'app Desktop par-dessus.
+Le banc d'essai du mod `denis-mod` : la même scène que le mod, pilotée à la main ou par un scénario, avec la maquette de l'app Desktop par-dessus.
 
 Ouvrir `index.html` dans un navigateur. Le moteur (`engine.js`) et la carte (`view-valley.js`) sont les sources : le mod en est généré.
 
@@ -21,7 +21,7 @@ python3 -I build/actors.py "/chemin/vers/Ninja Adventure - Asset Pack" actors.js
 Le module du mod, à partir du labo :
 
 ```bash
-node build/mod.js . ../../valley/hooks
+node build/mod.js . ../../denis-mod/hooks
 ```
 
 ## Mesurer

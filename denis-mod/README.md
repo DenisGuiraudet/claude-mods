@@ -5,7 +5,7 @@ Un village de jeu de rôle en pixel art, derrière la conversation de Claude Cod
 ## Installation
 
 ```
-/plugin install valley --marketplace DenisGuiraudet/claude-mods
+/plugin install denis-mod --marketplace DenisGuiraudet/claude-mods
 ```
 
 Le fond s'affiche dans l'app Desktop. Le terminal, VS Code et l'app mobile gardent leur fond habituel.
