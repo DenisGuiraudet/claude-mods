@@ -105,7 +105,7 @@ function derive(now){
 
 // ---------- world ----------
 const W={seed:(Math.random()*1e9)|0,ambNext:0,ents:[],fx:[],fires:[],nid:1,dirty:true,letterUntil:0,wakeUntil:0,costPulse:0,todoPulse:0,festUntil:0,nextSpawn:0,nextAdv:0,navKey:null,lastCost:S.cost,lastTodo:S.todoDone};
-let VIEW='valley',LABELS=true,PIXEL=0,NAV={nodes:{},adj:{}};
+let VIEW='valley',LABELS=true,NAV={nodes:{},adj:{}};
 
 function navFor(V){
   const key=VIEW+':'+(V.navKey?V.navKey():'');
@@ -354,7 +354,7 @@ function charDefs(D,V,need){
 }
 function drawEnt(e,now,D,V){
   if(e.state==='home')return '';
-  const sc=(V.charScale||1)*(e.scale||1)*((V.px??PIXEL)?1.3:1),s=segAt(e,now);if(e.state==='home')return '';
+  const sc=(V.charScale||1)*(e.scale||1),s=segAt(e,now);if(e.state==='home')return '';
   const ph=-(((now+e.id*137)/1000)%.6).toFixed(2);
   let body;
   const ak=actorKey(e,V);if(ak)return drawActor(e,now,D,V,s,sc,ak);
@@ -580,14 +580,10 @@ function composeOnce(now){
   o+=atmosphere(now,D,V,R);
   o+=effects(now,D,V);
   o+=(R.hud||'');
-  // Pixel art: the whole world is resampled on a PX grid (one sample per block, then dilated).
-  const PX=V.px??PIXEL;
-  if(PX)o=`<g filter="url(#kpx)">${o}</g>`;
   if(LABELS)o+=signs(now,D,V);
-  const pxf=PX?`<filter id="kpx" x="0" y="0" width="1600" height="1000" filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse"><feFlood x="${PX/2-1}" y="${PX/2-1}" width="2" height="2"/><feComposite x="0" y="0" width="${PX}" height="${PX}"/><feTile result="a"/><feComposite in="SourceGraphic" in2="a" operator="in"/><feMorphology operator="dilate" radius="${(PX-2)/2}"/></filter>`:'';
   let fw='';if(W.fx.some(x=>x.kind==='firework')){for(let j=0;j<18;j++)fw+=`<g transform="rotate(${j*20})"><circle r="4" fill="${j%2?'#fff':'currentColor'}" style="transform:var(--ft);opacity:var(--fo);animation:kburst 1.5s ease-out 1 both;animation-delay:var(--fd,0s)"/></g>`;fw=`<g id="kfw">${fw}</g>`}
   if(V.sprites)need.clear();if(W.ents.some(e=>e.kind==='cart'))need.add('cart');
-  const defs=`<defs>${pxf}${fw}${charDefs(D,V,need)}${D.storm>0?`<pattern id="krainp" width="80" height="120" patternUnits="userSpaceOnUse"><path d="M20 0 l-6 22 M62 40 l-6 22 M40 84 l-6 22" stroke="#d4dcff" stroke-opacity=".6" stroke-width="1.8"/></pattern>`:''}${V.sprites?'<ellipse id="ksh" rx="15" ry="5" fill="#3f2631" opacity=".28"/>':''}${[...AUSE].map(([k,fs])=>`<g id="a_${k}" transform="translate(0 .5)">${[...fs].map(([c,b])=>{const A=ACTORS[k][c];return (b&2?A[1]:b&1?A[0]:'')+(b&4?A[2]:'')}).join('')}</g>`).join('')}${R.defs||''}${tileDefs()}</defs>`;
+  const defs=`<defs>${fw}${charDefs(D,V,need)}${D.storm>0?`<pattern id="krainp" width="80" height="120" patternUnits="userSpaceOnUse"><path d="M20 0 l-6 22 M62 40 l-6 22 M40 84 l-6 22" stroke="#d4dcff" stroke-opacity=".6" stroke-width="1.8"/></pattern>`:''}${V.sprites?'<ellipse id="ksh" rx="15" ry="5" fill="#3f2631" opacity=".28"/>':''}${[...AUSE].map(([k,fs])=>`<g id="a_${k}" transform="translate(0 .5)">${[...fs].map(([c,b])=>{const A=ACTORS[k][c];return (b&2?A[1]:b&1?A[0]:'')+(b&4?A[2]:'')}).join('')}</g>`).join('')}${R.defs||''}${tileDefs()}</defs>`;
   const body=(defs+o).replace(/ shape-rendering="crispEdges"/g,'');
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid meet" shape-rendering="crispEdges" role="img" aria-label="${esc(V.name)}"><style>${pixelCss(body)}${styleFor(body,V)}</style>${body}${FRAME}</svg>`;
 }

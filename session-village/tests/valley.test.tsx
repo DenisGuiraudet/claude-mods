@@ -148,8 +148,17 @@ test('margins from the settings leave room on each side of the village', { optio
   expect(svg.includes('.kpad{box-sizing:border-box;padding:0 410px 0 285px;overflow:visible}')).toBe(true)
 })
 
+// The /config rows of the plugin's two margins, as the settings menu lists them.
+const marginRows = (on: On) => on('config.list', () => ({
+  value: ['margin_left', 'margin_right'].map(field => ({
+    key: `session-village.${field}`, label: field, kind: 'number', value: 0, provider: { kind: 'plugin', name: 'session-village' }, isLocked: false,
+  })),
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+}) as any)
+
 test('/village-marges sets each margin on its own, saves it and draws it', async ($, on) => {
   engine(on)
+  marginRows(on)
   await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
   expect((await svgOf($)).includes('kpad')).toBe(false)
   const run = (args: string) => $.command.run({ command: 'village-marges', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
@@ -163,6 +172,17 @@ test('/village-marges sets each margin on its own, saves it and draws it', async
   expect((await svgOf($)).includes('kpad')).toBe(false)
   const help = await run('à gauche')
   expect(String((help as { text?: string } | undefined)?.text)).toContain('/village-marges gauche 285')
+})
+
+test('/village-marges keeps the margins for the next sessions when the settings have no row for them', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
+  const done = await $.command.run({ command: 'village-marges', args: '285 410', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
+  expect(String((done as { text?: string } | undefined)?.text)).toBe('Marges du village : gauche 285 px, droite 410 px. Gardées pour les prochaines sessions.')
+  expect((await svgOf($)).includes('padding:0 410px 0 285px')).toBe(true)
+  // the next session starts from what was kept
+  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
+  expect((await svgOf($)).includes('padding:0 410px 0 285px')).toBe(true)
 })
 
 test('other surfaces keep their own backdrop', async ($, on) => {

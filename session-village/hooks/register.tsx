@@ -52,6 +52,17 @@ function withMargins(svg: string): string {
   return svg.replace('<svg ', '<svg class="kpad" ')
     .replace('<style>', `<style>.kpad{box-sizing:border-box;padding:0 ${margin.right}px 0 ${margin.left}px;overflow:visible}`)
 }
+// Margins /village-marges could not write to the settings (no /config row, as for a --plugin-dir plugin):
+// kept in the store instead, and preferred to the settings at the next session.
+const MARGIN_STORE = 'margins'
+async function saveMargin($: $T, side: 'left' | 'right'): Promise<boolean> {
+  const field = MARGIN_KEY[side]
+  const rows = await $.config.list().catch(() => [])
+  const row = rows.find(r => r.key === `${$.plugin.name}.${field}` || (r.key.startsWith(`${$.plugin.name}@`) && r.key.endsWith(`.${field}`)))
+  if (!row) return false
+  const set = await $.config.set({ key: row.key, value: margin[side] }).catch((err: unknown) => ({ deny: String(err) }))
+  return !set.deny
+}
 const MARGIN_HELP = 'Exemples : /village-marges gauche 285, /village-marges droite 410, /village-marges 285 410. 0 retire une marge.'
 
 // ---------- frames ----------
@@ -173,13 +184,18 @@ export const register: Register = (on, options) => {
     S.activity = 'idle'
     // asleep until the first message; a resumed conversation is already awake
     S.started = turns > 0
+    const kept = (await $.store.get(MARGIN_STORE)) as { left?: unknown; right?: unknown } | undefined
+    if (kept) {
+      margin.left = pixels(kept.left)
+      margin.right = pixels(kept.right)
+    }
     await readBranch($)
     newWorld(now())
     await $.command.register({ name: 'village', description: 'Ouvre ou ferme la légende du village' })
     await $.command.register({ name: 'village-test', description: "Compte les images du décor dessinées pendant la dernière minute" })
     await $.command.register({ name: 'village-marges', description: 'Règle la marge gauche et la marge droite du village, en pixels' })
     const set = await $.theme.set({ backdrop: { scene: SCENE } })
-    if (!set.isDrawn) $.ui.log(`valley: ${set.reason}`, { to: 'debug' })
+    if (!set.isDrawn) $.ui.log(`backdrop not drawn: ${set.reason}`, { to: 'debug' })
     $.clock.every(1000, () => tick($))
     draw($, true)
     return next(e)
@@ -338,7 +354,7 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'village-test' }, async () => ({ text: rhythm(now()) }))
 
-  // /village-marges gauche 285, droite 410, or both at once: saved in the settings, drawn at once.
+  // /village-marges gauche 285, droite 410, or both at once: saved in the settings (or the store), drawn at once.
   on('command.run', { command: 'village-marges' }, async ($, e) => {
     const words = e.args.trim().toLowerCase().split(/\s+/).filter(Boolean)
     const num = (w?: string) => (w !== undefined && /^\d+$/.test(w) ? Math.min(2000, Number(w)) : undefined)
@@ -354,18 +370,21 @@ export const register: Register = (on, options) => {
         want[side] = v
       }
     }
-    const unsaved: string[] = []
+    let inSettings = true
     for (const side of ['left', 'right'] as const) {
       const v = want[side]
       if (v === undefined) continue
       margin[side] = v
-      const set = await $.config.set({ key: `${$.plugin.name}.${MARGIN_KEY[side]}`, value: v }).catch((err: unknown) => ({ deny: String(err) }))
-      if (set.deny) unsaved.push(set.deny)
+      if (!(await saveMargin($, side))) inSettings = false
+    }
+    if (words.length) {
+      if (inSettings) await $.store.delete(MARGIN_STORE)
+      else await $.store.set(MARGIN_STORE, { ...margin })
     }
     draw($, true)
     const line = `Marges du village : gauche ${margin.left} px, droite ${margin.right} px.`
     if (!words.length) return { text: `${line} ${MARGIN_HELP}` }
-    return { text: unsaved.length ? `${line} Appliquées pour cette session, mais pas enregistrées : ${unsaved[0]}` : line }
+    return { text: `${line} ${inSettings ? 'Enregistrées dans les réglages du plugin.' : 'Gardées pour les prochaines sessions.'}` }
   })
 
   // ---------- /village: the legend pane ----------

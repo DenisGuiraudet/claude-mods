@@ -5,10 +5,11 @@ Un village de jeu de rôle en pixel art, derrière la conversation de Claude Cod
 ## Installation
 
 ```
-/plugin install session-village --marketplace DenisGuiraudet/claude-mods
+/plugin marketplace add DenisGuiraudet/claude-mods
+/plugin install session-village@denis-claude-mods
 ```
 
-Le fond s'affiche dans l'app Desktop. Le terminal, VS Code et l'app mobile gardent leur fond habituel. Le village tient en entier dans la fenêtre, quelle que soit sa forme : au-delà de la carte, l'herbe continue, un peu assombrie.
+Il faut Claude Code v2.1.323 ou plus récent. Le fond s'affiche dans l'app Desktop. Le terminal, VS Code et l'app mobile gardent leur fond habituel. Le village tient en entier dans la fenêtre, quelle que soit sa forme : au-delà de la carte, l'herbe continue, un peu assombrie.
 
 ## Ce que montre chaque lieu
 
@@ -42,9 +43,13 @@ Partout :
 
 Les waves suivent la branche git courante. Un titre de PR contenant `[2/4]` fixe la wave en cours et le nombre total. Un merge, par l'outil GitHub ou par un événement de PR suivi, passe à la wave suivante.
 
-## Légende
+## Commandes
 
-`/village` ouvre ou ferme un panneau qui liste chaque lieu, sa valeur en direct et ce qu'il faut regarder. Le lieu actif est mis en avant.
+| Commande | Effet |
+|---|---|
+| `/village` | Ouvre ou ferme la légende : chaque lieu, sa valeur en direct et ce qu'il faut regarder. Le lieu actif est mis en avant. |
+| `/village-marges` | Règle la place laissée à gauche et à droite du village (voir plus bas). |
+| `/village-test` | Indique combien d'images du fond l'app a dessinées pendant la dernière minute, et à quel rythme. |
 
 ## Marges
 
@@ -55,11 +60,34 @@ Le fond couvre toute la fenêtre, y compris sous la barre latérale et les panne
 /village-marges droite 410
 ```
 
-`/village-marges 285 410` règle les deux d'un coup, `0` retire une marge, et la commande seule affiche les valeurs en cours. Les valeurs sont enregistrées dans les réglages du plugin (`margin_left` et `margin_right`) et le village se redessine aussitôt. Sous les marges, l'herbe assombrie continue.
+`/village-marges 285 410` règle les deux d'un coup, `0` retire une marge, et la commande seule affiche les valeurs en cours. Le village se redessine aussitôt, et l'herbe assombrie continue sous les marges. Les valeurs vont dans les réglages du plugin (`margin_left` et `margin_right`, dans `pluginConfigs` de `settings.json`). Quand l'app ne propose pas ces réglages, par exemple pour un plugin chargé depuis un dossier local, le mod les garde lui-même pour les sessions suivantes.
 
-## Performance
+## Comment le fond est dessiné
 
-L'app Desktop n'affiche pas les images intégrées à une scène, donc tout le pixel art est en tracés vectoriels : chaque suite de pixels d'une même couleur sur une ligne est un trait. L'herbe est un motif répété, les cases du décor présentes plusieurs fois sont dessinées une seule fois, et un personnage n'envoie que ce qu'il montre (debout, la marche, l'attaque). Les animations sont en CSS, par paliers. Quand l'app Desktop fige le fond (réglage « Réduire les animations », rendu sans accélération matérielle), elle retire toutes les animations : chaque élément animé porte donc aussi sa position du moment, et la scène reste juste image par image. Le monde avance chaque seconde, et une image n'est envoyée que si quelque chose a changé, ou tant que quelqu'un marche ou qu'un effet joue. Les villageois marchent à mi-vitesse, pour avancer de moins d'une case d'une image à l'autre. En simulation sur dix minutes : aucune image avant le premier message, environ 60 par minute ensuite, au repos comme en plein travail. `/village-test` indique combien d'images l'app a dessinées pendant la dernière minute, et à quel rythme. Une image fait environ 80 000 caractères au repos et jusqu'à 120 000 en plein travail, sous la limite de 131 072 : au-delà de 120 000, les personnages en marche glissent sur leur image debout.
+- **En tracés vectoriels** : l'app Desktop n'affiche pas les images intégrées à une scène. Chaque suite de pixels d'une même couleur sur une ligne est donc un trait. L'herbe est un motif répété, les cases du décor présentes plusieurs fois sont dessinées une seule fois, et un personnage n'envoie que ce qu'il montre (debout, la marche, l'attaque).
+- **Image par image** : les animations sont en CSS, par paliers. Quand l'app fige le fond (réglage « Réduire les animations », rendu sans accélération matérielle), elle retire toutes les animations. Chaque élément animé porte donc aussi sa position du moment, et la scène reste juste image par image.
+- **Une seconde** : le monde avance chaque seconde. Une image part quand quelque chose a changé, ou tant que quelqu'un marche ou qu'un effet joue. Les villageois marchent à mi-vitesse, pour avancer de moins d'une case d'une image à l'autre. En simulation sur dix minutes : aucune image avant le premier message, environ 60 par minute ensuite. Mesuré dans l'app avec `/village-test` : 60 images dessinées en une minute, une par seconde.
+- **Taille** : une image fait environ 80 000 caractères au repos et jusqu'à 120 000 en plein travail, sous la limite de 131 072. Au-delà de 120 000, les personnages en marche glissent sur leur image debout.
+
+## Développer le mod
+
+Pour charger le mod depuis un clone du dépôt plutôt que depuis le marketplace, désactive la version installée, puis ajoute dans `~/.claude/settings.json` :
+
+```json
+"env": {
+  "CLAUDE_CODE_PLUGIN_DIRS": "<chemin du clone>/session-village",
+  "CLAUDE_CODE_PLUGIN_DIR_WATCH": "1"
+}
+```
+
+Le mod se recharge à la fin de chaque tour. Pour vérifier une modification :
+
+```
+claude plugin test session-village
+claude plugin validate session-village
+```
+
+Les tests tournent sans session ni réseau. Le code tient en trois fichiers : `hooks/register.tsx` (événements, commandes, réglages), `hooks/world.js` (le monde et son dessin) et `hooks/data/vector.js` (le décor, les tuiles et les personnages en tracés).
 
 ## Crédits
 
