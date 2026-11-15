@@ -40,7 +40,6 @@ const dist=(a,b)=>Math.hypot(b[0]-a[0],b[1]-a[1]);
 const pick=(a,r=Math.random)=>a[Math.floor(r()*a.length)];
 const INK='#2a2230';
 const K='class="o"'; // outline: see .o in CSS
-const FONT=`font-family="system-ui,-apple-system,'Segoe UI',sans-serif"`;
 
 // ---------- session ----------
 const MODELS={
@@ -51,7 +50,6 @@ const MODELS={
 };
 const CLASS={opus:'mage',sonnet:'knight',haiku:'scout',fable:'bard'};
 const EFFORT={low:.15,medium:.35,high:.6,xhigh:.82,max:1};
-const EFFORT_KEYS=Object.keys(EFFORT);
 // started: false until the first prompt of the session (the village sleeps).
 const S={started:false,model:'opus',effort:'high',activity:'idle',context:0,rate:2,cost:0,subagents:0,
   wavesTotal:4,waveCurrent:2,todoDone:0,todoTotal:5,steps:{commit:true,push:false,pr:false,merged:false}};
@@ -132,7 +130,7 @@ const moving=(e,now)=>!!e.pts&&now<e.t1;
 // Whether the scene moved on its own since a frame drawn at `since`: someone walked, or an effect played.
 function busy(since){return W.ents.some(e=>e.pts&&e.t1>since)||W.fx.some(x=>x.until>since)}
 // Everyone walks at half the pace of their speed: a desktop that freezes the backdrop moves walkers only
-// from one frame to the next, 1.5 s apart, and at full pace a villager would skip two tiles at a time.
+// from one frame to the next, a second apart, and at full pace a villager would skip more than a tile.
 const PACE=.5;
 function goTo(e,target,now,speed){
   if(!NAV.nodes[target])return false;
@@ -631,7 +629,7 @@ const EDGES=[['roadL','mine'],['mine','anvil'],['anvil','post'],['post','postW']
   ['rd29','stR'],['stR','j10R'],['j10R','bankW'],['bankW','bank'],['j10R','towerW'],['towerW','tower'],['tower','tw32'],['tw32','watch'],['j10R','pl'],['pl','camp'],['pl','gA'],['gA','gB'],['gB','watch'],
   ['gA','fr1'],['gA','fr2'],['gB','fr2'],['gB','fr3'],['fr1','fr2'],['fr2','fr3'],['fr1','fr4'],['fr4','fr5'],['fr5','fr6'],['fr2','fr5'],['fr3','fr6'],['spR','fr3'],['spR2','fr6'],['spB','fr4']];
 const LEFT=['j9L','ws','lib','stL','farm','mine','post','guild'],RIGHT=['pl','j10R','bank','camp','towerW','gA','tw32'];
-const SIGNC='#3f2631';let HUD=[];
+let HUD=[];
 
 // ---------- pixel pieces ----------
 function HOURGLASS(rate){const top=Math.round((1-rate)*4),bot=4-top,rows=['kkkkkkkkkkkk','.kSSSSSSSSk.'];

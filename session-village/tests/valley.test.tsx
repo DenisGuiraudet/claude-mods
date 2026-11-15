@@ -120,31 +120,19 @@ test('a model switch to a larger window is not a compaction', async ($, on) => {
   expect(spells(await svgOf($))).toBe(0)
 })
 
-test('/village-test lays the animation samples over the scene or alone, and takes them off', async ($, on) => {
+test('the scene is strict XML, and /village-test counts the frames the desktop drew', async ($, on) => {
   engine(on)
   await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
-  const run = (args = '') => $.command.run({ command: 'village-test', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
-  expect((await svgOf($)).includes('Tests · /village-test')).toBe(false)
-  await run()
-  const first = await svgOf($)
-  expect(first.includes('fill="url(#vg)"')).toBe(true)
-  expect(first.includes('Tests · /village-test')).toBe(true)
-  for (const tag of ['<animate ', '<animateTransform', '<animateMotion', '<set ', 'class="kt-class"', 'prefers-reduced-motion', 'class="kt-frame"']) expect(first.includes(tag)).toBe(true)
-  expect(first.length).toBeLessThan(131072)
+  await $.prompt.submit({ text: 'Corrige le test du panier', wait: false, origin: { kind: 'composer' } })
+  const svg = await svgOf($)
   // drawn as an image the SVG is strict XML: one duplicate attribute and nothing shows
-  const dup = [...first.matchAll(/<[a-zA-Z]+((?:\s+[\w:-]+="[^"]*")*)\s*\/?>/g)].find(m => {
+  const dup = [...svg.matchAll(/<[a-zA-Z]+((?:\s+[\w:-]+="[^"]*")*)\s*\/?>/g)].find(m => {
     const names = [...(m[1] ?? '').matchAll(/([\w:-]+)=/g)].map(x => x[1])
     return new Set(names).size !== names.length
   })
   expect(dup?.[0]).toBeUndefined()
-  // alone: the panel on a plain ground, without the village
-  await run('seul')
-  const alone = await svgOf($)
-  expect(alone.includes('Tests · /village-test')).toBe(true)
-  expect(alone.includes('fill="url(#vg)"')).toBe(false)
-  expect(alone.length).toBeLessThan(10000)
-  await run()
-  expect((await svgOf($)).includes('Tests · /village-test')).toBe(false)
+  const run = await $.command.run({ command: 'village-test', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
+  expect(String((run as { text?: string } | undefined)?.text)).toMatch(/^Dernière minute : \d+ images demandées, [1-9]\d* dessinées/)
 })
 
 test('other surfaces keep their own backdrop', async ($, on) => {
