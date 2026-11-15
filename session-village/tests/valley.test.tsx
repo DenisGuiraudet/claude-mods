@@ -28,8 +28,11 @@ function engine(on: On, turns = 0) {
   on('prompt.submit', (_, e) => ({ text: e.text }))
   on('tool.call', () => ({ result: {} }))
   on('session.measure', (_, e) => ({ changed: e.changed }))
+  on('config.set', (_, e) => (saved.set(e.key, e.value), { value: e.value }))
   return clock
 }
+// What /village-marges saved in the settings, by key.
+const saved = new Map<string, unknown>()
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const svgOf = async ($: { ui: { mount: (args: any) => Promise<any> } }) => {
@@ -45,6 +48,8 @@ test('the scene draws on desktop, under the size limit, asleep before the first 
   const svg = await svgOf($)
   expect(svg.startsWith('<svg')).toBe(true)
   expect(svg.length).toBeLessThan(131072)
+  // the whole village fits the window, whatever its shape
+  expect(svg.includes('preserveAspectRatio="xMidYMid meet"')).toBe(true)
   // the quest marker over the board only shows before the session starts
   expect(svg.includes('kalert')).toBe(true)
 })
@@ -133,6 +138,31 @@ test('the scene is strict XML, and /village-test counts the frames the desktop d
   expect(dup?.[0]).toBeUndefined()
   const run = await $.command.run({ command: 'village-test', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
   expect(String((run as { text?: string } | undefined)?.text)).toMatch(/^Dernière minute : \d+ images demandées, [1-9]\d* dessinées/)
+})
+
+test('margins from the settings leave room on each side of the village', { options: { margin_left: 285, margin_right: 410 } }, async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
+  const svg = await svgOf($)
+  expect(svg.startsWith('<svg class="kpad" ')).toBe(true)
+  expect(svg.includes('.kpad{box-sizing:border-box;padding:0 410px 0 285px;overflow:visible}')).toBe(true)
+})
+
+test('/village-marges sets each margin on its own, saves it and draws it', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
+  expect((await svgOf($)).includes('kpad')).toBe(false)
+  const run = (args: string) => $.command.run({ command: 'village-marges', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
+  await run('gauche 120')
+  expect((await svgOf($)).includes('padding:0 0px 0 120px')).toBe(true)
+  await run('droite 40')
+  expect((await svgOf($)).includes('padding:0 40px 0 120px')).toBe(true)
+  expect(saved.get('session-village.margin_left')).toBe(120)
+  expect(saved.get('session-village.margin_right')).toBe(40)
+  await run('0 0')
+  expect((await svgOf($)).includes('kpad')).toBe(false)
+  const help = await run('à gauche')
+  expect(String((help as { text?: string } | undefined)?.text)).toContain('/village-marges gauche 285')
 })
 
 test('other surfaces keep their own backdrop', async ($, on) => {

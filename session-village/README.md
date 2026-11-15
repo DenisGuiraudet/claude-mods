@@ -8,7 +8,7 @@ Un village de jeu de rôle en pixel art, derrière la conversation de Claude Cod
 /plugin install session-village --marketplace DenisGuiraudet/claude-mods
 ```
 
-Le fond s'affiche dans l'app Desktop. Le terminal, VS Code et l'app mobile gardent leur fond habituel.
+Le fond s'affiche dans l'app Desktop. Le terminal, VS Code et l'app mobile gardent leur fond habituel. Le village tient en entier dans la fenêtre, quelle que soit sa forme : au-delà de la carte, l'herbe continue, un peu assombrie.
 
 ## Ce que montre chaque lieu
 
@@ -46,9 +46,20 @@ Les waves suivent la branche git courante. Un titre de PR contenant `[2/4]` fixe
 
 `/village` ouvre ou ferme un panneau qui liste chaque lieu, sa valeur en direct et ce qu'il faut regarder. Le lieu actif est mis en avant.
 
+## Marges
+
+Le fond couvre toute la fenêtre, y compris sous la barre latérale et les panneaux. Pour que le village tienne dans la partie visible, règle une marge à gauche et une à droite, en pixels, chacune séparément :
+
+```
+/village-marges gauche 285
+/village-marges droite 410
+```
+
+`/village-marges 285 410` règle les deux d'un coup, `0` retire une marge, et la commande seule affiche les valeurs en cours. Les valeurs sont enregistrées dans les réglages du plugin (`margin_left` et `margin_right`) et le village se redessine aussitôt. Sous les marges, l'herbe assombrie continue.
+
 ## Performance
 
-L'app Desktop n'affiche pas les images intégrées à une scène, donc tout le pixel art est en tracés vectoriels : chaque suite de pixels d'une même couleur sur une ligne est un trait. L'herbe est un motif répété, les cases du décor présentes plusieurs fois sont dessinées une seule fois, et un personnage n'envoie que ce qu'il montre (debout, la marche, l'attaque). Les animations sont en CSS, par paliers. Quand l'app Desktop fige le fond (réglage « Réduire les animations », rendu sans accélération matérielle), elle retire toutes les animations : chaque élément animé porte donc aussi sa position du moment, et la scène reste juste image par image. Le monde avance toutes les 5 à 8 secondes et une image n'est envoyée que si quelque chose a changé, ou chaque seconde tant que quelqu'un marche ou qu'un effet joue. Les villageois marchent à mi-vitesse, pour avancer de moins d'une case d'une image à l'autre. En simulation sur dix minutes : aucune image avant le premier message, environ 60 par minute ensuite, au repos comme en plein travail. `/village-test` indique combien d'images l'app a dessinées pendant la dernière minute, et à quel rythme. Une image fait environ 80 000 caractères au repos et jusqu'à 120 000 en plein travail, sous la limite de 131 072 : au-delà de 120 000, les personnages en marche glissent sur leur image debout.
+L'app Desktop n'affiche pas les images intégrées à une scène, donc tout le pixel art est en tracés vectoriels : chaque suite de pixels d'une même couleur sur une ligne est un trait. L'herbe est un motif répété, les cases du décor présentes plusieurs fois sont dessinées une seule fois, et un personnage n'envoie que ce qu'il montre (debout, la marche, l'attaque). Les animations sont en CSS, par paliers. Quand l'app Desktop fige le fond (réglage « Réduire les animations », rendu sans accélération matérielle), elle retire toutes les animations : chaque élément animé porte donc aussi sa position du moment, et la scène reste juste image par image. Le monde avance chaque seconde, et une image n'est envoyée que si quelque chose a changé, ou tant que quelqu'un marche ou qu'un effet joue. Les villageois marchent à mi-vitesse, pour avancer de moins d'une case d'une image à l'autre. En simulation sur dix minutes : aucune image avant le premier message, environ 60 par minute ensuite, au repos comme en plein travail. `/village-test` indique combien d'images l'app a dessinées pendant la dernière minute, et à quel rythme. Une image fait environ 80 000 caractères au repos et jusqu'à 120 000 en plein travail, sous la limite de 131 072 : au-delà de 120 000, les personnages en marche glissent sur leur image debout.
 
 ## Crédits
 

@@ -37,6 +37,11 @@ function pose(name,p,ease=''){const o=stopsOf(name);if(!o)return '';const st=/st
   return s}
 const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
 const dist=(a,b)=>Math.hypot(b[0]-a[0],b[1]-a[1]);
+// The scene fits the window whole (meet). Past its 1600x1000 the grass goes on, shaded (FRAME), and the
+// layers over the whole scene (night, dawn, flash, rain) cover that margin too (BLEED).
+const BLEED='x="-1600" y="-1000" width="4800" height="3000"';
+const MARGIN='<g transform="scale(3)"><rect x="-544" y="-336" width="1632" height="1008" fill="url(#vg)"/></g>';
+const FRAME='<path d="M-1600 -1000h4800v3000h-4800zM0 0v1000h1600v-1000z" fill="#14210f" fill-rule="evenodd" opacity=".35"/>';
 const pick=(a,r=Math.random)=>a[Math.floor(r()*a.length)];
 const INK='#2a2230';
 const K='class="o"'; // outline: see .o in CSS
@@ -508,7 +513,7 @@ function effects(now,D,V){
     else if(x.kind==='coin'){let s='';for(let j=0;j<4;j++)s+=`<g transform="translate(${(j-1.5)*15},0)"><g style="${once('kcoin',1.2,since,j*.12)}">${pxArt(COIN,KP,-6,-6,3)}</g></g>`;o+=`<g transform="translate(${f(x.at[0])},${f(x.at[1])})">${s}</g>`}
     else if(x.kind==='sparkle'){let s='';const n=x.big?12:8;for(let j=0;j<n;j++){const a=-90+(j-(n-1)/2)*(x.big?16:20);s+=`<g transform="rotate(${a+90}) translate(0,-6)"><rect x="-2.5" y="-2.5" width="5" height="5" fill="${j%2?'#ffe27a':'#ffffff'}" transform="rotate(45)" style="${once('kspk',1,since,(j%4)*.18)}"/></g>`}o+=`<g transform="translate(${f(x.at[0])},${f(x.at[1])})"><g style="${once('klate',x.big?2.6:1.6,since,0,'linear')}">${s}</g></g>`}
     else if(x.kind==='firework'){o+=`<g transform="translate(${f(x.x)},${f(x.y)})"><line x1="0" y1="0" x2="0" y2="300" stroke="${x.col}" stroke-width="3" class="kc" style="transform-origin:50% 100%;${once('klaunch',.5,since)}"/><use href="#kfw" style="color:${x.col};--fd:${(.5-since/1000).toFixed(2)}s;${pose('kburst',clamp((since/1000-.5)/1.5)).replace(/(^|;)(t|o)[a-z]+:/g,'$1--f$2:')}"/></g>`}
-    else if(x.kind==='spell'){const c=D.m.a;o+=`<circle cx="${f(hp[0])}" cy="${f(hp[1]-20)}" r="20" fill="none" stroke="${c}" stroke-width="10" vector-effect="non-scaling-stroke" class="kc" style="${once('kspell',1.8,since)}"/><circle cx="${f(hp[0])}" cy="${f(hp[1]-20)}" r="20" fill="none" stroke="#fff" stroke-width="3" vector-effect="non-scaling-stroke" class="kc" style="${once('kspell',1.8,since,.15)}"/><rect width="1600" height="1000" fill="#ffffff" style="${once('kflash',1.2,since)}"/>`}
+    else if(x.kind==='spell'){const c=D.m.a;o+=`<circle cx="${f(hp[0])}" cy="${f(hp[1]-20)}" r="20" fill="none" stroke="${c}" stroke-width="10" vector-effect="non-scaling-stroke" class="kc" style="${once('kspell',1.8,since)}"/><circle cx="${f(hp[0])}" cy="${f(hp[1]-20)}" r="20" fill="none" stroke="#fff" stroke-width="3" vector-effect="non-scaling-stroke" class="kc" style="${once('kspell',1.8,since,.15)}"/><rect ${BLEED} fill="#ffffff" style="${once('kflash',1.2,since)}"/>`}
     else if(x.kind==='bird'){const a=V.birdFrom||[1700,60],tx=hp[0]+8,ty=hp[1]-48,cx=(a[0]+tx)/2,cy=Math.min(a[1],ty)-120,id='kq'+x.t0%1e6,bz=t=>{const u=1-t;return[f(u*u*a[0]+2*u*t*cx+t*t*tx),f(u*u*a[1]+2*u*t*cy+t*t*ty)]};
       KF.push(`@keyframes ${id}{${[0,1,2,3,4,5,6].map(i=>{const[x,y]=bz(i/6);return `${f(i/6*100)}%{transform:translate(${x}px,${y}px)}`}).join('')}}`);
       o+=`<g transform="translate(${bz(clamp(since/3000)).join(',')})" style="animation:${id} 3s linear both;animation-delay:${(-since/1000).toFixed(2)}s"><g style="${once('klate',5,since,0,'linear')}"><g transform="scale(1.4)"><g class="kc" style="${loop('kflap',.32,now,'steps(2)')}">${bird('#f4f1fa')}</g><rect x="-5" y="3" width="10" height="7" fill="#fff8e6" stroke="${INK}" stroke-width="1.2"/><rect x="-1" y="5" width="2" height="3" fill="#d9483b"/></g></g></g>`}
@@ -516,7 +521,7 @@ function effects(now,D,V){
     else if(x.kind==='flock')o+=`<g transform="translate(1700,${x.y})"><g style="${once('kflyo',14,since,0,'steps(140)')}">${[[0,0],[30,12],[-24,15],[54,27]].map(([a,b],i)=>`<g style="${loop('kpulse',.4,now,'steps(2)',i*120)}">${pxArt(['k...k','.k.k.','..k..'],KP,a,b,3)}</g>`).join('')}</g></g>`;
     else if(x.kind==='cloud')o+=`<g transform="translate(0,${x.y})" opacity=".13"><g style="${once('kcloud',45,since,0,'steps(90)')}">${pxArt(CLOUD,{k:'#1d2a4a'},0,0,15)}</g></g>`;
     else if(x.kind==='shadow')o+=`<g transform="translate(0,${x.y})" opacity=".3"><g style="${once('kdrag',7,since,0,'steps(56)')}"><g transform="rotate(90)">${pxArt(DRAGON,{k:'#140c24'},-72,-84,6)}</g></g></g>`;
-    else if(x.kind==='sunrise'){o+=`<rect width="1600" height="1000" fill="${V.night||'#3b4380'}" opacity="${f2(.85*.72)}" style="${once('kfade',3.4,since,0,'steps(8)')};mix-blend-mode:multiply"/><rect width="1600" height="1000" fill="#ffb98a" opacity=".25" style="${once('kfade',3.4,since,.6,'steps(8)')}"/>`}
+    else if(x.kind==='sunrise'){o+=`<rect ${BLEED} fill="${V.night||'#3b4380'}" opacity="${f2(.85*.72)}" style="${once('kfade',3.4,since,0,'steps(8)')};mix-blend-mode:multiply"/><rect ${BLEED} fill="#ffb98a" opacity=".25" style="${once('kfade',3.4,since,.6,'steps(8)')}"/>`}
     else if(x.kind==='alert'){o+=`<g transform="translate(${f(hp[0]-6)},${f(hp[1]-96)})"><g style="${once('klate',2.6,since,0,'linear')}"><g style="${loop('kalert',.5,now,'steps(2)')}">${pxArt(BANG,KP,0,0,3)}</g></g></g>`}
   }
   if(D.fest){for(let j=0;j<26;j++){const r=rnd(j+3),x0=(P.waves.fx||P.waves.label)[0]-260+r()*520,y0=(P.waves.fx||P.waves.label)[1]-200+r()*60;o+=`<rect x="${f(x0)}" y="${f(y0)}" width="6" height="9" fill="${pick(['#ffd04a','#ff7ac8','#7ee0ff','#b6ff7a','#ffffff'],r)}" class="kc" style="--dx:${f((r()-.5)*90)}px;${loop('kconf',2.4+r()*1.4,now,'steps(12)',j*170)}"/>`}}
@@ -524,9 +529,9 @@ function effects(now,D,V){
 }
 function atmosphere(now,D,V,R){
   let o='';
-  if(D.dawn>0)o+=`<rect width="1600" height="1000" fill="#ffb98a" opacity="${f2(D.dawn*.16)}" style="mix-blend-mode:soft-light"/>`;
-  if(D.dusk>0)o+=`<rect width="1600" height="1000" fill="#ff8a3a" opacity="${f2(D.dusk*.22)}" style="mix-blend-mode:soft-light"/>`;
-  if(D.n>0)o+=`<rect width="1600" height="1000" fill="${V.night||'#3b4380'}" opacity="${f2(D.n*.72)}" style="mix-blend-mode:multiply"/>`;
+  if(D.dawn>0)o+=`<rect ${BLEED} fill="#ffb98a" opacity="${f2(D.dawn*.16)}" style="mix-blend-mode:soft-light"/>`;
+  if(D.dusk>0)o+=`<rect ${BLEED} fill="#ff8a3a" opacity="${f2(D.dusk*.22)}" style="mix-blend-mode:soft-light"/>`;
+  if(D.n>0)o+=`<rect ${BLEED} fill="${V.night||'#3b4380'}" opacity="${f2(D.n*.72)}" style="mix-blend-mode:multiply"/>`;
   if(V.mist)o+=V.mist(D,now);
   const Ls=R.lights||[];
   if(Ls.length&&D.n>.05){const by={};for(const[x,y,w,h,c,src]of Ls){const k=c||'#ffcf6a';(by[k]=by[k]||[]).push([x,y,w,h,src])}
@@ -534,7 +539,7 @@ function atmosphere(now,D,V,R){
     const ring=(L,g,core)=>L.filter(q=>!core||!q[4]).map(([x,y,w,h])=>`M${x-g} ${y-g}h${w+2*g}v${h+2*g}h${-w-2*g}z`).join('');
     let gl='';for(const c in by){const k=ring(by[c],0,1);gl+=`<path d="${ring(by[c],9)}" fill="${c}" opacity=".16"/><path d="${ring(by[c],3)}" fill="${c}" opacity=".4"/>${k?`<path d="${k}" fill="${mix(c,'#ffffff',.3)}"/>`:''}`}
     o+=`<g opacity="${f2(clamp(D.n*1.5))}" shape-rendering="crispEdges">${gl}</g>`}
-  if(D.storm>0)o+=`<g opacity="${f2(D.storm)}"><rect x="-100" y="-240" width="1800" height="1300" fill="url(#krainp)" style="${loop('krainp',.45,now,'steps(4)')}"/><g transform="translate(37,55)"><rect x="-100" y="-240" width="1800" height="1300" fill="url(#krainp)" opacity=".6" style="${loop('krainp',.6,now,'steps(4)',200)}"/></g></g>`;
+  if(D.storm>0)o+=`<g opacity="${f2(D.storm)}"><rect x="-1700" y="-1240" width="5000" height="3500" fill="url(#krainp)" style="${loop('krainp',.45,now,'steps(4)')}"/><g transform="translate(37,55)"><rect x="-1700" y="-1240" width="5000" height="3500" fill="url(#krainp)" opacity=".6" style="${loop('krainp',.6,now,'steps(4)',200)}"/></g></g>`;
   return o;
 }
 // In-world signs: each view draws its own (V.sign). Engine falls back to a wooden plank.
@@ -584,7 +589,7 @@ function composeOnce(now){
   if(V.sprites)need.clear();if(W.ents.some(e=>e.kind==='cart'))need.add('cart');
   const defs=`<defs>${pxf}${fw}${charDefs(D,V,need)}${D.storm>0?`<pattern id="krainp" width="80" height="120" patternUnits="userSpaceOnUse"><path d="M20 0 l-6 22 M62 40 l-6 22 M40 84 l-6 22" stroke="#d4dcff" stroke-opacity=".6" stroke-width="1.8"/></pattern>`:''}${V.sprites?'<ellipse id="ksh" rx="15" ry="5" fill="#3f2631" opacity=".28"/>':''}${[...AUSE].map(([k,fs])=>`<g id="a_${k}" transform="translate(0 .5)">${[...fs].map(([c,b])=>{const A=ACTORS[k][c];return (b&2?A[1]:b&1?A[0]:'')+(b&4?A[2]:'')}).join('')}</g>`).join('')}${R.defs||''}${tileDefs()}</defs>`;
   const body=(defs+o).replace(/ shape-rendering="crispEdges"/g,'');
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" shape-rendering="crispEdges" role="img" aria-label="${esc(V.name)}"><style>${pixelCss(body)}${styleFor(body,V)}</style>${body}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid meet" shape-rendering="crispEdges" role="img" aria-label="${esc(V.name)}"><style>${pixelCss(body)}${styleFor(body,V)}</style>${body}${FRAME}</svg>`;
 }
 const VIEWS={};
 
@@ -760,7 +765,7 @@ VIEWS.valley={
 @keyframes vp-graze{0%,100%{transform:translateX(0)}50%{transform:translateX(-36px)}}`,
   draw(now,D){
     const L=[];HUD=[];for(const k in WIN)for(const[c,r]of WIN[k])L.push([X(c)+15,Y(r)+12,18,18,'#ffcf6a']);
-    let g=GROUND+waterLife(now);
+    let g=MARGIN+GROUND+waterLife(now);
     const props=[mine(D,now,L),tower(D,now,L),castle(D,now,L),workshop(D,now,L),library(D,now,L),post(D,now,L),guild(D,now,L),watch(D,now,L),bank(D,now,L),...farm(D,now,L),...plaza(D,now,L)].filter(Boolean);
     props.push([Y(7),smoke(X(26)+24,Y(6)-6,now,1,'#e8e4ee',2,500)]);
     const top='';

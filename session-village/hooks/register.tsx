@@ -2,9 +2,10 @@
 // Signals: model and effort (turn.step), context, 5-hour limit and cost (session.measure), the tool
 // at work (tool.call), sub-agents (turn.start/complete of other loops), tasks (TodoWrite, TaskCreate,
 // TaskUpdate), commits, pushes and PRs (Bash and GitHub tools, GitHub events), compaction.
-// The world steps every 5 to 8 s and a frame is sent only when it changed, or every second while someone
-// walks or an effect plays: a desktop that freezes the backdrop shows only the frames. /village opens the legend,
-// /village-test tells how many frames the desktop drew in the last minute.
+// The world steps every second, and a frame goes out when it changed, or while someone walks or an effect
+// plays: a desktop that freezes the backdrop shows only the frames. /village opens the legend,
+// /village-test tells how many frames the desktop drew in the last minute, /village-marges sets the room
+// left on each side of the village (userConfig margin_left and margin_right).
 import type { EngineInterface, Register } from 'claude-code'
 
 import {
@@ -21,7 +22,6 @@ const COMPACT_GAP = 30_000 // ms: session.compact and the context drop are one c
 const SVG_LIMIT = 131072 // characters: the desktop refuses a longer scene
 const now = () => Date.now()
 
-let lastTick = 0
 let lastDraw = 0
 let pending: { cancel: () => void } | null = null
 let cwd = ''
@@ -42,6 +42,17 @@ function rhythm(t: number): string {
     : `Dernière minute : ${a.length} images demandées, ${d.length} dessinées.`
 }
 const tasks = new Map<string, string>()
+// Room left on each side of the village, in CSS pixels: the root svg gets that padding, so the village fits
+// between the margins, and its shaded grass runs on under them (overflow visible).
+const margin = { left: 0, right: 0 }
+const MARGIN_KEY = { left: 'margin_left', right: 'margin_right' } as const
+const pixels = (v: unknown): number => (typeof v === 'number' && v > 0 ? Math.min(2000, Math.round(v)) : 0)
+function withMargins(svg: string): string {
+  if (!margin.left && !margin.right) return svg
+  return svg.replace('<svg ', '<svg class="kpad" ')
+    .replace('<style>', `<style>.kpad{box-sizing:border-box;padding:0 ${margin.right}px 0 ${margin.left}px;overflow:visible}`)
+}
+const MARGIN_HELP = 'Exemples : /village-marges gauche 285, /village-marges droite 410, /village-marges 285 410. 0 retire une marge.'
 
 // ---------- frames ----------
 function draw($: $T, urgent = false): void {
@@ -58,15 +69,11 @@ function draw($: $T, urgent = false): void {
   }
   if (!pending) pending = $.clock.after(wait, () => { pending = null; draw($) })
 }
+// Every second: each villager acts when its own timer runs out, and the frame follows.
 function tick($: $T): void {
-  const t = now()
-  // frozen, the scene moves only from one frame to the next: one every MIN_GAP while it moves on its own
-  if (busy(lastDraw)) draw($)
-  const calm = !S.started || (S.activity === 'idle' && W.fx.length === 0 && W.fires.length === 0)
-  if (t - lastTick < (calm ? 8000 : 5000)) return
-  lastTick = t
-  step(t)
-  if (W.dirty) draw($)
+  step(now())
+  // frozen, the scene moves only from one frame to the next: one a second while it moves on its own
+  if (W.dirty || busy(lastDraw)) draw($)
 }
 function act($: $T, a: Activity): void {
   if (S.activity === a) return
@@ -152,7 +159,9 @@ function merged($: $T): void {
   })
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  margin.left = pixels(options.margin_left)
+  margin.right = pixels(options.margin_right)
   on('session.start', async ($, e, next) => {
     cwd = e.cwd
     const [usage, model, turns] = await Promise.all([$.session.usage(), $.session.model(), $.session.turns()])
@@ -168,6 +177,7 @@ export const register: Register = on => {
     newWorld(now())
     await $.command.register({ name: 'village', description: 'Ouvre ou ferme la légende du village' })
     await $.command.register({ name: 'village-test', description: "Compte les images du décor dessinées pendant la dernière minute" })
+    await $.command.register({ name: 'village-marges', description: 'Règle la marge gauche et la marge droite du village, en pixels' })
     const set = await $.theme.set({ backdrop: { scene: SCENE } })
     if (!set.isDrawn) $.ui.log(`valley: ${set.reason}`, { to: 'debug' })
     $.clock.every(1000, () => tick($))
@@ -321,12 +331,42 @@ export const register: Register = on => {
     // every pixel is a vector path: the desktop drops images embedded in a scene
     const t = now()
     keep(drawn, t)
-    const svg = compose(t)
+    const svg = withMargins(compose(t))
     if (svg.length <= SVG_LIMIT) lastScene = svg
     return <Svg source={lastScene || svg} alt="Session Village, un village en pixel art qui vit au rythme de la session" />
   })
 
   on('command.run', { command: 'village-test' }, async () => ({ text: rhythm(now()) }))
+
+  // /village-marges gauche 285, droite 410, or both at once: saved in the settings, drawn at once.
+  on('command.run', { command: 'village-marges' }, async ($, e) => {
+    const words = e.args.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    const num = (w?: string) => (w !== undefined && /^\d+$/.test(w) ? Math.min(2000, Number(w)) : undefined)
+    const want: Partial<Record<'left' | 'right', number>> = {}
+    if (words.length === 2 && num(words[0]) !== undefined && num(words[1]) !== undefined) {
+      want.left = num(words[0])
+      want.right = num(words[1])
+    } else {
+      for (let i = 0; i < words.length; i += 2) {
+        const side = /^(g|gauche|l|left)$/.test(words[i]) ? 'left' : /^(d|droite|r|right)$/.test(words[i]) ? 'right' : undefined
+        const v = num(words[i + 1])
+        if (!side || v === undefined) return { text: MARGIN_HELP }
+        want[side] = v
+      }
+    }
+    const unsaved: string[] = []
+    for (const side of ['left', 'right'] as const) {
+      const v = want[side]
+      if (v === undefined) continue
+      margin[side] = v
+      const set = await $.config.set({ key: `${$.plugin.name}.${MARGIN_KEY[side]}`, value: v }).catch((err: unknown) => ({ deny: String(err) }))
+      if (set.deny) unsaved.push(set.deny)
+    }
+    draw($, true)
+    const line = `Marges du village : gauche ${margin.left} px, droite ${margin.right} px.`
+    if (!words.length) return { text: `${line} ${MARGIN_HELP}` }
+    return { text: unsaved.length ? `${line} Appliquées pour cette session, mais pas enregistrées : ${unsaved[0]}` : line }
+  })
 
   // ---------- /village: the legend pane ----------
   on('command.run', { command: 'village' }, async $ => {
