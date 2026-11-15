@@ -1,0 +1,25 @@
+{
+  "name": "session-village",
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": { "name": "Denis Guiraudet" },
+  "description": "A pixel-art RPG village behind the conversation that lives at the pace of the session: model, effort, context, limits, cost, tools, tasks and PR waves.",
+  "userConfig": {
+    "margin_left": {
+      "type": "number",
+      "title": "Marge gauche (px)",
+      "description": "Espace laissé libre à gauche du village, par exemple la largeur de la barre latérale. 0 : aucune marge.",
+      "default": 0,
+      "min": 0,
+      "max": 2000
+    },
+    "margin_right": {
+      "type": "number",
+      "title": "Marge droite (px)",
+      "description": "Espace laissé libre à droite du village, par exemple la largeur d'un panneau ouvert. 0 : aucune marge.",
+      "default": 0,
+      "min": 0,
+      "max": 2000
+    }
+  }
+}

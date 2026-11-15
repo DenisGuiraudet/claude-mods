@@ -1,4 +1,4 @@
-// Types for world.js, the generated engine and map of the Valley (see build/mod.js).
+// Types for world.js, the engine and map of the village.
 export type Activity = 'idle' | 'thinking' | 'bash' | 'edit' | 'read' | 'web';
 export type ModelKey = 'opus' | 'sonnet' | 'haiku' | 'fable';
 export type EffortKey = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -46,6 +46,7 @@ export function step(now: number): void;
 export function retarget(now: number): void;
 export function wake(now: number): void;
 export function compose(now: number): string;
+export function busy(since: number): boolean;
 export function ambient(now: number, D: Derived, V: View, id?: string): { id: string; name: string } | null;
 export function evPrompt(now: number): void;
 export function evError(now: number): void;
