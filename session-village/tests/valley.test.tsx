@@ -16,7 +16,7 @@ const PANE = {
 
 // The engine beneath the plugin: a fresh session on a branch, no turn yet.
 function engine(on: On, turns = 0) {
-  mock.clock(on, { now: 1_800_000_000_000 })
+  const clock = mock.clock(on, { now: 1_800_000_000_000 })
   mock.store(on)
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200000, percent: 12 }, rateLimits: [{ kind: 'five_hour', percentUsed: 20 }], cost: { usd: 0.4 } } }))
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
@@ -28,6 +28,7 @@ function engine(on: On, turns = 0) {
   on('prompt.submit', (_, e) => ({ text: e.text }))
   on('tool.call', () => ({ result: {} }))
   on('session.measure', (_, e) => ({ changed: e.changed }))
+  return clock
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -71,6 +72,20 @@ test('the first message wakes the village, a full context brings the fog', async
   expect(svg.length).toBeLessThan(131072)
 })
 
+test('every animated element also holds its pose, for a desktop that draws the backdrop frozen', async ($, on) => {
+  const clock = engine(on)
+  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
+  await $.prompt.submit({ text: 'Corrige le test du panier', wait: false, origin: { kind: 'composer' } })
+  // the first tick steps the world, and the villagers set off
+  await clock.advance(1000)
+  const svg = await svgOf($)
+  expect(/animation:w\d+ /.test(svg)).toBe(true)
+  // frozen, the desktop strips every animation: where an element stands must not hang on one
+  const tags = [...svg.matchAll(/<[a-zA-Z]+\b[^>]*\bstyle="[^"]*animation:(?!var\()[^"]*"[^>]*>/g)].map(m => m[0])
+  expect(tags.length).toBeGreaterThan(20)
+  expect(tags.find(tag => !/transform="|transform:|opacity:/.test(tag))).toBeUndefined()
+})
+
 // Each compaction casts one spell over the hero.
 const spells = (svg: string) => svg.split('animation:kspell ').length - 1
 const fill = (tokens: number, window = 200000) => ({
@@ -103,6 +118,33 @@ test('a model switch to a larger window is not a compaction', async ($, on) => {
   await $.session.measure(fill(120000))
   await $.session.measure(fill(121000, 1000000))
   expect(spells(await svgOf($))).toBe(0)
+})
+
+test('/village-test lays the animation samples over the scene or alone, and takes them off', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
+  const run = (args = '') => $.command.run({ command: 'village-test', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
+  expect((await svgOf($)).includes('Tests · /village-test')).toBe(false)
+  await run()
+  const first = await svgOf($)
+  expect(first.includes('fill="url(#vg)"')).toBe(true)
+  expect(first.includes('Tests · /village-test')).toBe(true)
+  for (const tag of ['<animate ', '<animateTransform', '<animateMotion', '<set ', 'class="kt-class"', 'prefers-reduced-motion', 'class="kt-frame"']) expect(first.includes(tag)).toBe(true)
+  expect(first.length).toBeLessThan(131072)
+  // drawn as an image the SVG is strict XML: one duplicate attribute and nothing shows
+  const dup = [...first.matchAll(/<[a-zA-Z]+((?:\s+[\w:-]+="[^"]*")*)\s*\/?>/g)].find(m => {
+    const names = [...(m[1] ?? '').matchAll(/([\w:-]+)=/g)].map(x => x[1])
+    return new Set(names).size !== names.length
+  })
+  expect(dup?.[0]).toBeUndefined()
+  // alone: the panel on a plain ground, without the village
+  await run('seul')
+  const alone = await svgOf($)
+  expect(alone.includes('Tests · /village-test')).toBe(true)
+  expect(alone.includes('fill="url(#vg)"')).toBe(false)
+  expect(alone.length).toBeLessThan(10000)
+  await run()
+  expect((await svgOf($)).includes('Tests · /village-test')).toBe(false)
 })
 
 test('other surfaces keep their own backdrop', async ($, on) => {

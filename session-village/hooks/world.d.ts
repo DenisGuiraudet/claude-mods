@@ -46,6 +46,7 @@ export function step(now: number): void;
 export function retarget(now: number): void;
 export function wake(now: number): void;
 export function compose(now: number): string;
+export function busy(since: number): boolean;
 export function ambient(now: number, D: Derived, V: View, id?: string): { id: string; name: string } | null;
 export function evPrompt(now: number): void;
 export function evError(now: number): void;

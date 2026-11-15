@@ -16,8 +16,25 @@ const hx=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
 const mix=(c1,c2,t)=>{const a=hx(c1),b=hx(c2);return '#'+a.map((v,i)=>Math.round(v+(b[i]-v)*clamp(t)).toString(16).padStart(2,'0')).join('')};
 const tone=(c,k)=>k<0?mix(c,'#000000',-k):mix(c,'#ffffff',k);
 const rnd=seed=>()=>{seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
-const loop=(name,dur,now,ease='ease-in-out',phase=0)=>`animation:${name} ${dur.toFixed(2)}s ${ease} infinite;animation-delay:-${(((now+phase)/1000)%dur).toFixed(2)}s`;
-const once=(name,dur,since,stagger=0,ease='ease-out')=>`animation:${name} ${dur}s ${ease} 1 both;animation-delay:${(stagger-since/1000).toFixed(2)}s`;
+const loop=(name,dur,now,ease='ease-in-out',phase=0)=>{const d=((now+phase)/1000)%dur;return `${pose(name,d/dur,ease)}animation:${name} ${dur.toFixed(2)}s ${ease} infinite;animation-delay:-${d.toFixed(2)}s`};
+const once=(name,dur,since,stagger=0,ease='ease-out')=>`${pose(name,clamp((since/1000-stagger)/dur),ease)}animation:${name} ${dur}s ${ease} 1 both;animation-delay:${(stagger-since/1000).toFixed(2)}s`;
+// Still poses. A desktop that draws the backdrop frozen (reduced motion, software compositing) strips every
+// animation and draws each element as styled. So an animated element also carries, as plain style, the
+// transform and opacity its keyframes give at this frame's time; a running animation overrides them.
+const NUM=/(-?\d*\.?\d+)(px|deg)?/g,STOPS={};
+function stopsOf(name){const k=keysOf(CSS).m[name]||keysOf(VIEWS[VIEW]?.css||'').m[name];if(!k)return null;
+  if(!STOPS[k]){const o={};for(const[,at,body]of k.slice(k.indexOf('{')+1,-1).matchAll(/([^{}]+)\{([^{}]*)\}/g))
+    for(const d of body.split(';')){const i=d.indexOf(':'),q=d.slice(0,i).trim();if(q!=='transform'&&q!=='opacity')continue;
+      for(const a of at.split(',')){const t=a.trim();(o[q]||=[]).push([t==='from'?0:t==='to'?100:parseFloat(t),d.slice(i+1).trim()])}}
+    for(const q in o)o[q].sort((a,b)=>a[0]-b[0]);STOPS[k]=o}
+  return STOPS[k]}
+// Between two values of the same shape, number by number; otherwise the nearer one.
+function lerpCss(a,b,k){const sa=a.replace(NUM,'#');if(k<=0||sa!==b.replace(NUM,'#'))return k<.5?a:b;const x=[...a.matchAll(NUM)],y=[...b.matchAll(NUM)];let i=0;
+  return sa.replace(/#/g,()=>{const m=x[i],n=y[i++];return f2(+m[1]+(n[1]-m[1])*k)+(m[2]||n[2]||'')})}
+function pose(name,p,ease=''){const o=stopsOf(name);if(!o)return '';const st=/steps\((\d+)/.exec(ease);if(st)p=Math.floor(p*st[1])/st[1];else if(ease==='step-end')p=p<1?0:1;
+  let s='';for(const q in o){const L=o[q],x=p*100;let j=0;while(j<L.length-1&&L[j+1][0]<=x)j++;const a=L[j],b=L[j+1];
+    s+=`${q}:${!b||x<=a[0]?a[1]:lerpCss(a[1],b[1],(x-a[0])/(b[0]-a[0]))};`}
+  return s}
 const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
 const dist=(a,b)=>Math.hypot(b[0]-a[0],b[1]-a[1]);
 const pick=(a,r=Math.random)=>a[Math.floor(r()*a.length)];
@@ -112,6 +129,11 @@ function segAt(e,now){
 }
 function pos(e,now){const s=segAt(e,now);if(s)return s.p;return NAV.nodes[e.node]||NAV.nodes[VIEWS[VIEW].home]||[800,500]}
 const moving=(e,now)=>!!e.pts&&now<e.t1;
+// Whether the scene moved on its own since a frame drawn at `since`: someone walked, or an effect played.
+function busy(since){return W.ents.some(e=>e.pts&&e.t1>since)||W.fx.some(x=>x.until>since)}
+// Everyone walks at half the pace of their speed: a desktop that freezes the backdrop moves walkers only
+// from one frame to the next, 1.5 s apart, and at full pace a villager would skip two tiles at a time.
+const PACE=.5;
 function goTo(e,target,now,speed){
   if(!NAV.nodes[target])return false;
   const s=segAt(e,now);let startPt,startId;
@@ -123,7 +145,7 @@ function goTo(e,target,now,speed){
   e.node=target;W.dirty=true;
   if(pts.length<2){e.pts=null;return false}
   e.pts=pts;e.ids=idl;e.L=[];let len=0;for(let i=1;i<pts.length;i++){const l=dist(pts[i-1],pts[i]);e.L.push(l);len+=l}
-  e.len=len;e.t0=now;e.t1=now+len/(speed||e.speed)*1000;e.state='walk';return true;
+  e.len=len;e.t0=now;e.t1=now+len/((speed||e.speed)*PACE)*1000;e.state='walk';return true;
 }
 function leave(e,now){
   e.leaving=true;e.until=0;const V=VIEWS[VIEW];
@@ -368,8 +390,8 @@ function drawEnt(e,now,D,V){
     const dirs=L.map((_,i)=>rest[i+1][0]-rest[i][0]>=0?1:-1);e.dir=dirs[dirs.length-1];
     const same=dirs.every(d=>d===dirs[0]);
     if(!same)KF.push(`@keyframes ${id}f{${dirs.map((d,i)=>`${pc[i]}%{transform:scale(${d},1)}`).join('')}100%{transform:scale(${e.dir},1)}}`);
-    const turn=same?`<g transform="scale(${dirs[0]},1)">${body}</g>`:`<g style="animation:${id}f ${dur}s step-end both">${body}</g>`;
-    return `<g style="animation:${id} ${dur}s linear both"><g transform="scale(${f2(sc)})">${shadow}${aura}${turn}</g></g>`;
+    const turn=same?`<g transform="scale(${dirs[0]},1)">${body}</g>`:`<g transform="scale(${dirs[0]},1)" style="animation:${id}f ${dur}s step-end both">${body}</g>`;
+    return `<g transform="translate(${f(rest[0][0]+e.jx)},${f(rest[0][1]+e.jy)})" style="animation:${id} ${dur}s linear both"><g transform="scale(${f2(sc)})">${shadow}${aura}${turn}</g></g>`;
   }
   const p=pos(e,now);
   return `<g transform="translate(${f(p[0]+e.jx)},${f(p[1]+e.jy)})"><g transform="scale(${f2(sc)})">${shadow}${aura}</g><g transform="scale(${f2(e.dir*sc)},${f2(sc)})">${body}</g></g>`;
@@ -397,9 +419,9 @@ function drawActor(e,now,D,V,s,sc,k){
     const d4=L.map((_,i)=>DIR4(rest[i+1][0]-rest[i][0],rest[i+1][1]-rest[i][1]));e.face=d4[d4.length-1];e.dir=e.face===2?-1:1;
     const same=d4.every(d=>d===d4[0]);for(const d of d4)need(d,2);
     if(!same)KF.push(`@keyframes ${id}d{${d4.map((d,i)=>`${pc[i]}%{transform:translateX(${-16*d}px)}`).join('')}100%{transform:translateX(${-16*e.face}px)}}`);
-    const legs=LITE?img:`<g style="animation:kw4 .6s steps(4) ${Math.max(1,Math.ceil(sec/.6))}">${img}</g>`;
-    const turn=same?`<g transform="translate(${-16*d4[0]},0)">${legs}</g>`:`<g style="animation:${id}d ${dur}s step-end both">${legs}</g>`;
-    return `<g style="animation:${id} ${dur}s linear both"><g transform="scale(${f2(sc)})">${shadow}${aura}${box(turn,0)}</g></g>`;
+    const legs=LITE?img:`<g style="${pose('kw4',(now/600)%1,'steps(4)')}animation:kw4 .6s steps(4) ${Math.max(1,Math.ceil(sec/.6))}">${img}</g>`;
+    const turn=same?`<g transform="translate(${-16*d4[0]},0)">${legs}</g>`:`<g transform="translate(${-16*d4[0]},0)" style="animation:${id}d ${dur}s step-end both">${legs}</g>`;
+    return `<g transform="translate(${f(rest[0][0]+e.jx)},${f(rest[0][1]+e.jy)})" style="animation:${id} ${dur}s linear both"><g transform="scale(${f2(sc)})">${shadow}${aura}${box(turn,0)}</g></g>`;
   }
   const face=e.face??0;let body;
   if(e.state==='sleep')need(0,1);else if(e.state==='dance')need(0,2);else if(e.state==='work'||e.state==='fight')need(face,5);else need(face,e.kind==='enemy'?2:1);
@@ -487,11 +509,11 @@ function effects(now,D,V){
     if(x.kind==='puff'){let s='';for(let j=0;j<6;j++){const a=j/6*Math.PI*2;s+=`<circle cx="${f(Math.cos(a)*12)}" cy="${f(Math.sin(a)*9)}" r="11" fill="#efeaf6" class="kc" style="${once('kpuff',.9,since,j*.02)}"/>`}o+=`<g transform="translate(${f(x.at[0])},${f(x.at[1])})">${s}</g>`}
     else if(x.kind==='coin'){let s='';for(let j=0;j<4;j++)s+=`<g transform="translate(${(j-1.5)*15},0)"><g style="${once('kcoin',1.2,since,j*.12)}">${pxArt(COIN,KP,-6,-6,3)}</g></g>`;o+=`<g transform="translate(${f(x.at[0])},${f(x.at[1])})">${s}</g>`}
     else if(x.kind==='sparkle'){let s='';const n=x.big?12:8;for(let j=0;j<n;j++){const a=-90+(j-(n-1)/2)*(x.big?16:20);s+=`<g transform="rotate(${a+90}) translate(0,-6)"><rect x="-2.5" y="-2.5" width="5" height="5" fill="${j%2?'#ffe27a':'#ffffff'}" transform="rotate(45)" style="${once('kspk',1,since,(j%4)*.18)}"/></g>`}o+=`<g transform="translate(${f(x.at[0])},${f(x.at[1])})"><g style="${once('klate',x.big?2.6:1.6,since,0,'linear')}">${s}</g></g>`}
-    else if(x.kind==='firework'){o+=`<g transform="translate(${f(x.x)},${f(x.y)})"><line x1="0" y1="0" x2="0" y2="300" stroke="${x.col}" stroke-width="3" class="kc" style="transform-origin:50% 100%;${once('klaunch',.5,since)}"/><use href="#kfw" style="color:${x.col};--fd:${(.5-since/1000).toFixed(2)}s"/></g>`}
+    else if(x.kind==='firework'){o+=`<g transform="translate(${f(x.x)},${f(x.y)})"><line x1="0" y1="0" x2="0" y2="300" stroke="${x.col}" stroke-width="3" class="kc" style="transform-origin:50% 100%;${once('klaunch',.5,since)}"/><use href="#kfw" style="color:${x.col};--fd:${(.5-since/1000).toFixed(2)}s;${pose('kburst',clamp((since/1000-.5)/1.5)).replace(/(^|;)(t|o)[a-z]+:/g,'$1--f$2:')}"/></g>`}
     else if(x.kind==='spell'){const c=D.m.a;o+=`<circle cx="${f(hp[0])}" cy="${f(hp[1]-20)}" r="20" fill="none" stroke="${c}" stroke-width="10" vector-effect="non-scaling-stroke" class="kc" style="${once('kspell',1.8,since)}"/><circle cx="${f(hp[0])}" cy="${f(hp[1]-20)}" r="20" fill="none" stroke="#fff" stroke-width="3" vector-effect="non-scaling-stroke" class="kc" style="${once('kspell',1.8,since,.15)}"/><rect width="1600" height="1000" fill="#ffffff" style="${once('kflash',1.2,since)}"/>`}
-    else if(x.kind==='bird'){const a=V.birdFrom||[1700,60],tx=hp[0]+8,ty=hp[1]-48,cx=(a[0]+tx)/2,cy=Math.min(a[1],ty)-120,id='kq'+x.t0%1e6;
-      KF.push(`@keyframes ${id}{${[0,1,2,3,4,5,6].map(i=>{const t=i/6,u=1-t;return `${f(t*100)}%{transform:translate(${f(u*u*a[0]+2*u*t*cx+t*t*tx)}px,${f(u*u*a[1]+2*u*t*cy+t*t*ty)}px)}`}).join('')}}`);
-      o+=`<g style="animation:${id} 3s linear both;animation-delay:${(-since/1000).toFixed(2)}s"><g style="${once('klate',5,since,0,'linear')}"><g transform="scale(1.4)"><g class="kc" style="${loop('kflap',.32,now,'steps(2)')}">${bird('#f4f1fa')}</g><rect x="-5" y="3" width="10" height="7" fill="#fff8e6" stroke="${INK}" stroke-width="1.2"/><rect x="-1" y="5" width="2" height="3" fill="#d9483b"/></g></g></g>`}
+    else if(x.kind==='bird'){const a=V.birdFrom||[1700,60],tx=hp[0]+8,ty=hp[1]-48,cx=(a[0]+tx)/2,cy=Math.min(a[1],ty)-120,id='kq'+x.t0%1e6,bz=t=>{const u=1-t;return[f(u*u*a[0]+2*u*t*cx+t*t*tx),f(u*u*a[1]+2*u*t*cy+t*t*ty)]};
+      KF.push(`@keyframes ${id}{${[0,1,2,3,4,5,6].map(i=>{const[x,y]=bz(i/6);return `${f(i/6*100)}%{transform:translate(${x}px,${y}px)}`}).join('')}}`);
+      o+=`<g transform="translate(${bz(clamp(since/3000)).join(',')})" style="animation:${id} 3s linear both;animation-delay:${(-since/1000).toFixed(2)}s"><g style="${once('klate',5,since,0,'linear')}"><g transform="scale(1.4)"><g class="kc" style="${loop('kflap',.32,now,'steps(2)')}">${bird('#f4f1fa')}</g><rect x="-5" y="3" width="10" height="7" fill="#fff8e6" stroke="${INK}" stroke-width="1.2"/><rect x="-1" y="5" width="2" height="3" fill="#d9483b"/></g></g></g>`}
     else if(x.kind==='star')o+=`<g transform="translate(${x.x},${x.y})"><g style="${once('kstar',1.2,since,0,'steps(10)')}">${pxArt(['w.......','.wC.....','..CCw...','....CCCw'],{w:'#ffffff',C:'#c6f2ff'},0,0,3)}</g></g>`;
     else if(x.kind==='flock')o+=`<g transform="translate(1700,${x.y})"><g style="${once('kflyo',14,since,0,'steps(140)')}">${[[0,0],[30,12],[-24,15],[54,27]].map(([a,b],i)=>`<g style="${loop('kpulse',.4,now,'steps(2)',i*120)}">${pxArt(['k...k','.k.k.','..k..'],KP,a,b,3)}</g>`).join('')}</g></g>`;
     else if(x.kind==='cloud')o+=`<g transform="translate(0,${x.y})" opacity=".13"><g style="${once('kcloud',45,since,0,'steps(90)')}">${pxArt(CLOUD,{k:'#1d2a4a'},0,0,15)}</g></g>`;
@@ -560,7 +582,7 @@ function composeOnce(now){
   if(PX)o=`<g filter="url(#kpx)">${o}</g>`;
   if(LABELS)o+=signs(now,D,V);
   const pxf=PX?`<filter id="kpx" x="0" y="0" width="1600" height="1000" filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse"><feFlood x="${PX/2-1}" y="${PX/2-1}" width="2" height="2"/><feComposite x="0" y="0" width="${PX}" height="${PX}"/><feTile result="a"/><feComposite in="SourceGraphic" in2="a" operator="in"/><feMorphology operator="dilate" radius="${(PX-2)/2}"/></filter>`:'';
-  let fw='';if(W.fx.some(x=>x.kind==='firework')){for(let j=0;j<18;j++)fw+=`<g transform="rotate(${j*20})"><circle r="4" fill="${j%2?'#fff':'currentColor'}" style="animation:kburst 1.5s ease-out 1 both;animation-delay:var(--fd,0s)"/></g>`;fw=`<g id="kfw">${fw}</g>`}
+  let fw='';if(W.fx.some(x=>x.kind==='firework')){for(let j=0;j<18;j++)fw+=`<g transform="rotate(${j*20})"><circle r="4" fill="${j%2?'#fff':'currentColor'}" style="transform:var(--ft);opacity:var(--fo);animation:kburst 1.5s ease-out 1 both;animation-delay:var(--fd,0s)"/></g>`;fw=`<g id="kfw">${fw}</g>`}
   if(V.sprites)need.clear();if(W.ents.some(e=>e.kind==='cart'))need.add('cart');
   const defs=`<defs>${pxf}${fw}${charDefs(D,V,need)}${D.storm>0?`<pattern id="krainp" width="80" height="120" patternUnits="userSpaceOnUse"><path d="M20 0 l-6 22 M62 40 l-6 22 M40 84 l-6 22" stroke="#d4dcff" stroke-opacity=".6" stroke-width="1.8"/></pattern>`:''}${V.sprites?'<ellipse id="ksh" rx="15" ry="5" fill="#3f2631" opacity=".28"/>':''}${[...AUSE].map(([k,fs])=>`<g id="a_${k}" transform="translate(0 .5)">${[...fs].map(([c,b])=>{const A=ACTORS[k][c];return (b&2?A[1]:b&1?A[0]:'')+(b&4?A[2]:'')}).join('')}</g>`).join('')}${R.defs||''}${tileDefs()}</defs>`;
   const body=(defs+o).replace(/ shape-rendering="crispEdges"/g,'');
@@ -584,23 +606,17 @@ const KP={k:'#3f2631',K:'#262b44',w:'#ffffff',g:'#84c669',G:'#479f4a',l:'#8bd87d
 
 // Session Village, pixel art: a 34 x 21 tile village (Kenney Tiny Town, Tiny Dungeon, Tiny Farm, CC0) plus
 // hand-made pixel pieces in the same palette. Buildings sit on two wings, the key signals on the right; the centre (under the chat
-// column) is a calm meadow with the river. Everything static is baked into one PNG (bake.js -> baked.js);
+// column) is a calm meadow with the river. Everything static is drawn once, as vector paths (data/vector.js);
 // only what moves or reads a signal is drawn per frame.
 (()=>{
 const X=c=>c*48,Y=r=>r*48,nd=(c,r)=>[c*48+24,r*48+40];
-const hl=(c0,c1,r)=>{const a=[];for(let c=c0;c<=c1;c++)a.push([c,r]);return a},vl=(c,r0,r1)=>{const a=[];for(let r=r0;r<=r1;r++)a.push([c,r]);return a};
 
 // ---------- map ----------
 const RIVER_L={0:16,1:16,2:16,3:16,4:16,5:16,6:16,7:15,8:15,9:15,10:15,11:15,12:15,13:16,14:16,15:16,16:16,17:17,18:17,19:17,20:17};
 const WATER=new Set();for(const r in RIVER_L){WATER.add(RIVER_L[r]+','+r);WATER.add((RIVER_L[r]+1)+','+r)}
-const PLAZA=[25,11,29,14];// c0,r0,c1,r1
 // Left wing (often under the app's sidebar): tool activity, tasks, the guild. Right wing, the last six
 // columns always in view: waves (castle), model and effort (tower), context (woods, fog, monsters),
 // the hero's home; cost sits just left of them.
-const PATHS=[...hl(0,15,4),...hl(18,33,4),...vl(3,6,9),...hl(0,8,9),...vl(3,10,18),...hl(4,7,18),
-  ...vl(29,6,10),...hl(25,33,10),...hl(26,28,9),...vl(32,11,14),...hl(27,32,15)];
-const STAIRS=[3,29];
-const CLIFF=c=>c<=8||c>=25;
 const N={
   roadL:nd(-2,4),mine:nd(1,4),anvil:[X(4)+36,Y(4)+40],post:nd(6,4),postW:nd(8,4),
   stL:nd(3,6),j9L:nd(3,9),ws:nd(1,9),wsW:nd(2,9),lib:nd(6,9),libW:nd(8,9),farm:nd(3,12),farmW:nd(5,12),farmW2:nd(7,12),bY:nd(3,15),barn:nd(1,15),gL:nd(3,18),guild:nd(7,18),
@@ -628,85 +644,12 @@ const FLAG=['k.....','kaaaa.','kabaak','kaaaa.','k.....','k.....','k.....'];
 const COINS=['.kkkk.','kyyyyk','kkkkkk','kyyyyk','kkkkkk'];
 const PIGEON=['.ww..','wwwww','..ww.'];
 const CRYSTAL=['...k...','..kbk..','.kbwak.','kbbaaak','.kaaak.','..kak..','...k...'];
-const LAMP=['.kkk.','kyyyk','kyyyk','.kkk.','..k..','..k..','..k..','..k..','..k..','.kkk.'];
-const QUEST=['.kkkkkkkkkk.','kDDDDDDDDDDk','kDwwwDwwwwDk','kDwSwDwSSwDk','kDwwwDwwwwDk','kDwSwDwSwwDk','kDwwwDwwwwDk','kDDDDDDDDDDk','.kkkkkkkkkk.','...kD..kD...','..kkDk.kDkk.'];
 const FIRE=[['....y.....','...yoy..y.','..yoey.yoy','.yoeeoyooy','.yoeeeooey','..yoeeeoy.'],['.....y....','.y..yoy...','yoy.yeoy..','yooyoeeoy.','yeooeeeoy.','.yoeeeoy..']];
 const LOGS=['kDDkDDkDDk','.kDDkDDkk.'];
 const BANG=['.kk.','kyyk','kyyk','kyyk','kyyk','.kk.','....','.kk.','kyyk','.kk.'];
 const LAMPS=[[25,11],[29,11]];
-const MAILBOX=['.kkkk.','kzzzzk','kzzzzk','.kkkk.','..kk..','..kk..','..kk..'];
 
-// ---------- static world: drawn once, baked to a PNG ----------
-function pxStairs(x,y){let s=`<rect x="${x}" y="${y}" width="48" height="48" fill="#8b9bb4"/>`;for(let i=0;i<4;i++)s+=`<rect x="${x}" y="${y+i*12}" width="48" height="9" fill="#c0cbdc"/><rect x="${x}" y="${y+i*12+9}" width="48" height="3" fill="#5a6988"/>`;return `<g shape-rendering="crispEdges">${s}<rect x="${x}" y="${y}" width="3" height="48" fill="#3f2631"/><rect x="${x+45}" y="${y}" width="3" height="48" fill="#3f2631"/></g>`}
-function house(c,r,rows){let s='';rows.forEach((row,j)=>row.forEach((id,i)=>{if(id)s+=T(id,X(c+i),Y(r+j))}));return [Y(r+rows.length),s]}
-const B={
-  workshop:[0,6,[['t52','t53','t54'],['t64','t67','t66'],['t84','t86','t75']]],
-  library:[4,6,[['t48','t49','t49','t50'],['t60','t61','t63','t62'],['t76','t88','t90','t88']]],
-  post:[5,1,[['t52','t53','t54'],['t64','t67','t66'],['t72','t86','t75']]],
-  barn:[0,10,[[null,'f82',null],['f93','f94','f95'],['f129','f130','f131'],['f102','f103','f104'],['f126','f127','f128']]],
-  guild:[5,15,[['t52','t53','t53','t54'],['t64','t65','t67','t66'],['t72','t84','t86','t84']]],
-  bank:[25,6,[['t52','t53','t54'],['t64','t67','t66'],['t76','t90','t88']]],
-  tower:[30,6,[['t48','t49','t50'],['t60','t63','t62'],['t76','t77','t79'],['t76','t90','t79']]],
-};
 const WIN={workshop:[[0,8]],library:[[5,8],[7,8]],guild:[[6,17],[8,17]],bank:[[27,8]]};
-let STATIC=null,STATIC_IDS=null,OCC=null;
-function occ(){OCC=new Set();const add=(c0,r0,w,h)=>{for(let c=c0;c<c0+w;c++)for(let r=r0;r<r0+h;r++)OCC.add(c+','+r)};
-  add(0,1,5,4);add(5,1,4,3);add(0,6,3,3);add(4,6,5,3);add(0,10,3,5);add(4,10,5,4);add(5,15,4,3);add(29,0,5,4);add(25,6,4,3);add(30,6,3,4);add(31,11,1,3);
-  add(PLAZA[0],PLAZA[1],PLAZA[2]-PLAZA[0]+1,PLAZA[3]-PLAZA[1]+1);
-  for(let c=0;c<34;c++)if(CLIFF(c))OCC.add(c+',5');for(const k of WATER)OCC.add(k);for(const[c,r]of PATHS)OCC.add(c+','+r)}
-function staticWorld(){
-  if(STATIC)return STATIC;occ();const r=rnd(3);
-  let g=`<rect width="1632" height="1008" fill="url(#vgrass)"/>`;
-  // flowers: denser on the wings, sparse in the calm centre
-  for(let c=0;c<34;c++)for(let rr=0;rr<21;rr++){if(OCC.has(c+','+rr))continue;const v=r(),k=c>=9&&c<=24?.35:1;if(v<.14*k)g+=T('t1',X(c),Y(rr));else if(v<.19*k)g+=T('t2',X(c),Y(rr))}
-  const[c0,r0,c1,r1]=PLAZA;for(let c=c0;c<=c1;c++)for(let rr=r0;rr<=r1;rr++){const top=rr===r0,bot=rr===r1,lef=c===c0,rig=c===c1;
-    g+=T('t'+(top?(lef?12:rig?14:13):bot?(lef?36:rig?38:37):(lef?24:rig?26:25)),X(c),Y(rr))}
-  for(const[c,rr]of PATHS)if(!WATER.has(c+','+rr))g+=T('t43',X(c),Y(rr));
-  for(let c=0;c<34;c++){if(!CLIFF(c))continue;g+=STAIRS.includes(c)?pxStairs(X(c),Y(5)):T('t126',X(c),Y(5))}
-  // river bed, light lip on the top-left edges, dark rim
-  let wd='',rim='',lip='';
-  for(const k of WATER){const[c,rr]=k.split(',').map(Number);const x=X(c),y=Y(rr);wd+=`M${x} ${y}h48v48h-48z`;
-    if(rr>0&&!WATER.has(c+','+(rr-1))){rim+=`M${x} ${y}h48v3h-48z`;lip+=`M${x} ${y+3}h48v6h-48z`}
-    if(rr<20&&!WATER.has(c+','+(rr+1)))rim+=`M${x} ${y+45}h48v3h-48z`;
-    if(!WATER.has((c-1)+','+rr)){rim+=`M${x} ${y}h3v48h-3z`;lip+=`M${x+3} ${y}h6v48h-6z`}
-    if(!WATER.has((c+1)+','+rr))rim+=`M${x+45} ${y}h3v48h-3z`}
-  g+=`<path d="${wd}" fill="#2f8fd6" shape-rendering="crispEdges"/><path d="${lip}" fill="#76e4ff" opacity=".8" shape-rendering="crispEdges"/><path d="${rim}" fill="#3f2631" shape-rendering="crispEdges"/>`;
-  // north bridge
-  {const x=X(16)-6,w=108,y=Y(4)+3;g+=`<g shape-rendering="crispEdges"><rect x="${x}" y="${y}" width="${w}" height="42" fill="#cf8254"/>`;for(let xx=x+12;xx<x+w;xx+=12)g+=`<rect x="${xx}" y="${y}" width="3" height="42" fill="#bd6c4a"/>`;
-    g+=`<rect x="${x}" y="${y-3}" width="${w}" height="6" fill="#763b36"/><rect x="${x}" y="${y+39}" width="${w}" height="6" fill="#763b36"/><rect x="${x}" y="${y-3}" width="${w}" height="48" fill="none" stroke="#3f2631" stroke-width="3"/></g>`}
-  // props, painted back to front
-  const P=[],add=(y,s)=>P.push([y,s]),tr=(id,c,rr)=>add(Y(rr+1),T(id,X(c),Y(rr)));
-  for(const k in B)P.push(house(...B[k]));
-  // mine: rock facade, rails, furnace, anvil
-  {let s='';[['d40','d40','d40','d40'],['d41','d46','d28','d40']].forEach((row,j)=>row.forEach((id,i)=>s+=T(id,X(i),Y(2+j))));
-    s+=pxArt(['....kkk....','...kSSSk...','..kSSzSSk..'],KP,X(0)+15,Y(2)-9,3)+pxArt(['.kkk.','kSzSk'],KP,X(3)+6,Y(2)-6,3);add(Y(4),s);
-    let rl='';for(let c=0;c<4;c++)rl+=T(c%2?'d80':'d79',X(c),Y(4)-6);add(Y(4)+1,rl);tr('d55',4,3);add(Y(4)+36,T('d74',X(4),Y(4)-6))}
-  // tower panel behind the hourglass
-  add(Y(10)+1,`<rect x="${X(31)+3}" y="${Y(8)+3}" width="42" height="42" fill="#c0cbdc" shape-rendering="crispEdges"/>`);
-  // castle walls and gate
-  {let s='';for(let c=29;c<=33;c++){s+=T(c===29?'t99':c===33?'t101':'t100',X(c),Y(1));s+=T(c===31?'t111':c===32?'t112':(c%2?'t125':'t126'),X(c),Y(2));s+=T(c===31?'t123':c===32?'t124':'t126',X(c),Y(3))}add(Y(4),s)}
-  // watchtower over the woods
-  add(Y(14),T('t102',X(31),Y(11))+T('t125',X(31),Y(12))+T('t126',X(31),Y(13)));
-  // plaza: fountain, well, lamps, quest board; mailbox by the post
-  add(Y(13),T('d20',X(26),Y(11))+T('d32',X(26),Y(12)));tr('t104',25,13);
-  for(const[c,rr]of LAMPS)add(Y(rr)+24,pxArt(LAMP,KP,X(c)+16,Y(rr)-6,3));
-  add(Y(14),pxArt(QUEST,KP,X(29)+6,Y(13)+15,3));
-  add(Y(4)-15,pxArt(MAILBOX,KP,X(8)+12,Y(3)+12,3));
-  [[8,8,'d63'],[4,10,'t106'],[0,16,'f96'],[4,16,'f97']].forEach(([c,rr,id])=>tr(id,c,rr));
-  for(let i=0;i<10;i++)tr('f51',4+i%5,i<5?11:13);
-  // trees: framing, a few in the meadow, the haunted woods bottom right
-  [[4,0,'t16'],[0,19,'t28'],[2,20,'t16'],[5,20,'t28'],[8,20,'t16'],[8,19,'t5'],[4,19,'t5'],
-   [9,0,'t28'],[11,1,'t16'],[13,1,'t15'],[20,1,'t16'],[22,0,'t28'],[24,1,'t27'],[12,2,'t5'],[23,2,'t5'],[25,0,'t16'],[27,0,'t28'],[26,2,'t16'],[28,2,'t5'],
-   [10,8,'t16'],[23,10,'t28'],[12,12,'t5'],[10,16,'t5'],[23,14,'t16'],[11,19,'t28'],[22,20,'t16'],[20,15,'t5'],[33,7,'t16'],[33,12,'t28'],[24,7,'t5']].forEach(([c,rr,id])=>tr(id,c,rr));
-  [[25,16],[33,16],[25,18],[26,20],[29,20],[32,20],[24,19],[30,16],[33,20],[24,17]].forEach(([c,rr],i)=>tr(['t16','f2','t28','f14'][i%4],c,rr));
-  [[28,18,'d64'],[31,18,'d65'],[26,19,'d64']].forEach(([c,rr,id])=>tr(id,c,rr));
-  P.sort((a,b)=>a[0]-b[0]);
-  STATIC=g+P.map(p=>p[1]).join('');
-  STATIC_IDS=new Set(['t0',...[...STATIC.matchAll(/href="#([tdf]\d+)"/g)].map(m=>m[1])]);
-  return STATIC;
-}
-const STATIC_DEFS=`<pattern id="vgrass" width="48" height="48" patternUnits="userSpaceOnUse"><use href="#t0"/></pattern>`;
-
 // ---------- dynamic pieces: only what moves or reads a signal ----------
 function mine(D,now,L){const act=sigActive('bash',now);let s=`<g style="${act?loop('vp-cart',3.4,now,'steps(8)'):''}">${T('d54',X(1),Y(4)-18)}</g>`;
   if(act){s+=`<rect x="${X(4)+12}" y="${Y(3)+18}" width="24" height="18" fill="#fdbe53" style="${loop('kpulse',.6,now,'steps(2)')}"/>`;
@@ -817,7 +760,6 @@ VIEWS.valley={
 @keyframes vp-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
 @keyframes vp-wave{0%,100%{transform:translateX(0)}50%{transform:translateX(3px)}}
 @keyframes vp-graze{0%,100%{transform:translateX(0)}50%{transform:translateX(-36px)}}`,
-  bake(){return {svg:staticWorld(),defs:STATIC_DEFS}},
   draw(now,D){
     const L=[];HUD=[];for(const k in WIN)for(const[c,r]of WIN[k])L.push([X(c)+15,Y(r)+12,18,18,'#ffcf6a']);
     let g=GROUND+waterLife(now);
@@ -849,5 +791,5 @@ VIEWS.valley={
 };
 })();
 
-export { S, W, MODELS, EFFORT, SIG, VIEWS, derive, newWorld, step, retarget, wake, compose, ambient,
+export { S, W, MODELS, EFFORT, SIG, VIEWS, derive, newWorld, step, retarget, wake, compose, busy, ambient,
   evPrompt, evError, evCompact, evMerge, evCommit, evPush, sigActive, sigValue, sigCol, progress };
