@@ -75,6 +75,9 @@ test('the first message wakes the village, a full context brings the fog', async
   const svg = await svgOf($)
   expect(svg.includes('#3a0f6a')).toBe(true)
   expect(svg.length).toBeLessThan(131072)
+  // a sign tells the measure, not the place's name in the story
+  expect(svg.includes('class="vt">Contexte · 90 %<')).toBe(true)
+  expect(svg.includes('class="vt">Brume')).toBe(false)
 })
 
 test('every animated element also holds its pose, for a desktop that draws the backdrop frozen', async ($, on) => {
@@ -89,6 +92,15 @@ test('every animated element also holds its pose, for a desktop that draws the b
   const tags = [...svg.matchAll(/<[a-zA-Z]+\b[^>]*\bstyle="[^"]*animation:(?!var\()[^"]*"[^>]*>/g)].map(m => m[0])
   expect(tags.length).toBeGreaterThan(20)
   expect(tags.find(tag => !/transform="|transform:|opacity:/.test(tag))).toBeUndefined()
+  // a walk cycle with no first keyframe starts from the standing row, never from past its last step
+  const legs = new Set<string>()
+  for (let i = 0; i < 6; i++) {
+    await clock.advance(1000)
+    const frame = await svgOf($)
+    expect(/translateY\(-64px\);animation:kw4/.test(frame)).toBe(false)
+    for (const m of frame.matchAll(/transform:translateY\(([^)]*)\);animation:kw4/g)) legs.add(m[1] ?? '')
+  }
+  expect(legs.size).toBeGreaterThan(1)
 })
 
 // Each compaction casts one spell over the hero.
@@ -138,6 +150,21 @@ test('the scene is strict XML, and /village-test counts the frames the desktop d
   expect(dup?.[0]).toBeUndefined()
   const run = await $.command.run({ command: 'village-test', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
   expect(String((run as { text?: string } | undefined)?.text)).toMatch(/^Dernière minute : \d+ images demandées, [1-9]\d* dessinées/)
+})
+
+test('/village-debug reports the frames and finds nothing wrong with the last one', async ($, on) => {
+  const clock = engine(on)
+  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
+  await $.prompt.submit({ text: 'Corrige le test du panier', wait: false, origin: { kind: 'composer' } })
+  await clock.advance(3000)
+  await svgOf($)
+  const run = await $.command.run({ command: 'village-debug', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
+  const text = String((run as { text?: string } | undefined)?.text)
+  expect(text.startsWith('Session Village, diagnostic')).toBe(true)
+  expect(text).toContain('Décor : dessiné.')
+  expect(text).toContain('OK : XML strict')
+  expect(text).toContain('OK : chaque élément animé porte sa pose')
+  expect(text).toContain('prompt.submit 1')
 })
 
 test('margins from the settings leave room on each side of the village', { options: { margin_left: 285, margin_right: 410 } }, async ($, on) => {

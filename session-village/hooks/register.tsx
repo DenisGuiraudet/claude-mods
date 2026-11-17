@@ -5,7 +5,8 @@
 // The world steps every second, and a frame goes out when it changed, or while someone walks or an effect
 // plays: a desktop that freezes the backdrop shows only the frames. /village opens the legend,
 // /village-test tells how many frames the desktop drew in the last minute, /village-marges sets the room
-// left on each side of the village (userConfig margin_left and margin_right).
+// left on each side of the village (userConfig margin_left and margin_right), /village-debug reports what
+// the mod sees and checks the last frame.
 import type { EngineInterface, Register } from 'claude-code'
 
 import {
@@ -33,14 +34,25 @@ const loops = new Set<string>()
 // The last minute of frames: when the mod asked for one, and when the desktop had the backdrop drawn.
 const asked: number[] = []
 const drawn: number[] = []
-const keep = (a: number[], t: number): number[] => { a.push(t); while (a[0] < t - 60_000) a.shift(); return a }
+const keep = (a: number[], t: number): number[] => { a.push(t); while ((a[0] ?? t) < t - 60_000) a.shift(); return a }
 function rhythm(t: number): string {
   const d = drawn.filter(x => x >= t - 60_000), a = asked.filter(x => x >= t - 60_000)
-  const gaps = d.slice(1).map((x, i) => (x - d[i]) / 1000), s = (n: number) => n.toFixed(1).replace('.', ',')
+  const gaps = d.slice(1).map((x, i) => (x - (d[i] ?? x)) / 1000), s = (n: number) => n.toFixed(1).replace('.', ',')
   return gaps.length
     ? `Dernière minute : ${a.length} images demandées, ${d.length} dessinées, une toutes les ${s(gaps.reduce((x, y) => x + y, 0) / gaps.length)} s en moyenne (écart le plus long ${s(Math.max(...gaps))} s).`
     : `Dernière minute : ${a.length} images demandées, ${d.length} dessinées.`
 }
+// What /village-debug reports: each drawn frame's size, the clock's ticks, what the desktop and the events said.
+const sizes: number[] = [] // characters, one per entry of drawn
+const ticks: number[] = []
+let tooBig = 0 // frames over SVG_LIMIT, drawn as the last one under it
+let backdrop = { isDrawn: false, why: 'pas encore demandé' }
+let since = 0 // when the clock started
+let marginFrom = ''
+let compactVia = ''
+let received = '' // the last session.receive event, as it came
+const seen = new Map<string, number>()
+const saw = (event: string): void => { seen.set(event, (seen.get(event) ?? 0) + 1) }
 const tasks = new Map<string, string>()
 // Room left on each side of the village, in CSS pixels: the root svg gets that padding, so the village fits
 // between the margins, and its shaded grass runs on under them (overflow visible).
@@ -82,6 +94,7 @@ function draw($: $T, urgent = false): void {
 }
 // Every second: each villager acts when its own timer runs out, and the frame follows.
 function tick($: $T): void {
+  keep(ticks, now())
   step(now())
   // frozen, the scene moves only from one frame to the next: one a second while it moves on its own
   if (W.dirty || busy(lastDraw)) draw($)
@@ -110,11 +123,12 @@ const TOOL: Record<string, Activity> = {
 const toolActivity = (tool: string): Activity | null => TOOL[tool] ?? (tool.startsWith('mcp__') ? 'web' : null)
 
 // ---------- compaction: session.compact, or a sharp context drop when another plugin answered it ----------
-function compacted($: $T): void {
+function compacted($: $T, via: string): void {
   ctxTokens = undefined
   const t = now()
   if (t - lastCompact < COMPACT_GAP) return
   lastCompact = t
+  compactVia = via
   evCompact(t)
   draw($, true)
 }
@@ -170,10 +184,68 @@ function merged($: $T): void {
   })
 }
 
+// ---------- /village-debug: what the mod sees, and checks on the last frame drawn ----------
+type Ent = { kind: string; pts: unknown; t1: number }
+type Fx = { kind: string; until: number }
+const fr = (x: number, d = 1): string => x.toFixed(d).replace('.', ',')
+const chars = (x: number): string => String(Math.round(x)).replace(/\B(?=(\d{3})+$)/g, ' ')
+const tally = (names: string[]): string => [...new Set(names)].map(n => `${n} ${names.filter(x => x === n).length}`).join(', ')
+async function attempt<T>(ask: () => Promise<T>, or: T): Promise<T> {
+  try { return await ask() } catch { return or }
+}
+async function report($: $T): Promise<string> {
+  const t = now(), inMinute = (a: number[]) => a.filter(x => x >= t - 60_000).length
+  const [version, surfaces, rows] = await Promise.all([
+    attempt(async () => (await $.session.version()).version, 'inconnue'),
+    attempt(async () => (await $.session.surfaces()).join(', '), ''),
+    attempt(() => $.config.list(), []),
+  ])
+  const hasRow = (field: string) => rows.some(r => r.key === `${$.plugin.name}.${field}` || (r.key.startsWith(`${$.plugin.name}@`) && r.key.endsWith(`.${field}`)))
+  const d = drawn.filter(x => x >= t - 60_000), sz = sizes.slice(sizes.length - d.length)
+  const gaps = d.slice(1).map((x, i) => (x - (d[i] ?? x)) / 1000), mean = gaps.length ? gaps.reduce((a, b) => a + b, 0) / gaps.length : 0
+  const heaviest = sz.length ? Math.max(...sz) : 0, wanted = Math.min(60, Math.floor((t - since) / 1000))
+  const ents = W.ents as Ent[], fx = (W.fx as Fx[]).filter(x => x.until > t), fires = (W.fires as Fx[]).filter(x => x.until > t)
+  const steps = Object.entries(S.steps).filter(([, done]) => done).map(([k]) => k).join(', ')
+  // drawn as an image the SVG is strict XML; frozen, an animated element shows only its pose
+  const dup = [...lastScene.matchAll(/<[a-zA-Z]+((?:\s+[\w:-]+="[^"]*")*)\s*\/?>/g)].filter(m => {
+    const names = [...(m[1] ?? '').matchAll(/([\w:-]+)=/g)].map(x => x[1])
+    return new Set(names).size !== names.length
+  }).length
+  const unposed = [...lastScene.matchAll(/<[a-zA-Z]+\b[^>]*\bstyle="[^"]*animation:(?!var\()[^"]*"[^>]*>/g)].filter(m => !/transform="|transform:|opacity:/.test(m[0])).length
+  const checks: [boolean, string][] = [
+    [backdrop.isDrawn, "l'app dessine le décor"],
+    [d.length >= inMinute(asked) - 2, `l'app dessine les images demandées (${inMinute(asked)} demandées, ${d.length} dessinées)`],
+    [gaps.length < 20 || mean <= 1.3, gaps.length < 20 ? "rythme : trop peu d'images cette minute pour juger" : `rythme : une image toutes les ${fr(mean)} s en moyenne`],
+    [heaviest <= SVG_LIMIT && tooBig === 0, 'chaque image tient sous la limite de taille'],
+    [inMinute(ticks) >= wanted - 2, `l'horloge du mod bat chaque seconde (${inMinute(ticks)} tops sur ${wanted})`],
+    [lastScene !== '' && dup === 0, lastScene ? `XML strict${dup ? ` (${dup} balises avec un attribut en double)` : ''}` : 'aucune image à vérifier'],
+    [lastScene !== '' && unposed === 0, `chaque élément animé porte sa pose, pour un décor figé${unposed ? ` (${unposed} sans pose)` : ''}`],
+  ]
+  return [
+    'Session Village, diagnostic',
+    `Claude Code ${version}, surfaces : ${surfaces || 'aucune'}.`,
+    `Décor : ${backdrop.isDrawn ? 'dessiné' : `pas dessiné (${backdrop.why})`}.`,
+    `${rhythm(t)}${d.length ? ` Dernière il y a ${fr((t - (d[d.length - 1] ?? t)) / 1000)} s.` : ''}`,
+    `Taille : dernière image ${chars(sz[sz.length - 1] ?? 0)} caractères, la plus lourde de la minute ${chars(heaviest)}, limite ${chars(SVG_LIMIT)}. Allégées (marcheurs sans pas) : ${W.lite}. Trop lourdes, remplacées : ${tooBig}.`,
+    `Horloge : ${inMinute(ticks)} tops dans la dernière minute, ${W.frame} pas depuis le début.`,
+    `Village : ${S.started ? 'réveillé' : 'endormi'}, activité ${S.activity}, modèle ${S.model}, effort ${S.effort}, contexte ${S.context} %${ctxTokens !== undefined ? ` (${chars(ctxTokens)} tokens)` : ''}, limite 5 h ${S.rate} %, coût ${fr(S.cost, 2)} $.`,
+    `Tâches ${S.todoDone}/${S.todoTotal}, sous-agents ${S.subagents}. Branche ${branch || 'inconnue'} : wave ${S.waveCurrent}/${S.wavesTotal}, étapes ${steps || 'aucune'}.`,
+    `Monde : ${ents.length} personnages (${tally(ents.map(e => e.kind))}), ${ents.filter(e => e.pts && e.t1 > t).length} en marche ; effets : ${tally(fx.map(x => x.kind)) || 'aucun'} ; incendies : ${fires.length}.`,
+    `Marges : gauche ${margin.left} px, droite ${margin.right} px${marginFrom ? `, venues ${marginFrom}` : ''}. Réglages margin_left et margin_right ${hasRow('margin_left') && hasRow('margin_right') ? "proposés par l'app" : 'absents (plugin chargé depuis un dossier ?)'}.`,
+    `Compaction : ${lastCompact ? `il y a ${Math.round((t - lastCompact) / 60_000)} min, vue par ${compactVia}` : 'aucune'}.`,
+    `Événements reçus : ${[...seen].map(([k, n]) => `${k} ${n}`).join(', ') || 'aucun'}.`,
+    `Dernier session.receive : ${received || 'aucun'}.`,
+    'Vérifications :',
+    ...checks.map(([ok, what]) => `${ok ? 'OK' : 'À VOIR'} : ${what}`),
+  ].join('\n')
+}
+
 export const register: Register = (on, options) => {
   margin.left = pixels(options.margin_left)
   margin.right = pixels(options.margin_right)
+  if (margin.left || margin.right) marginFrom = 'des réglages du plugin'
   on('session.start', async ($, e, next) => {
+    saw('session.start')
     cwd = e.cwd
     const [usage, model, turns] = await Promise.all([$.session.usage(), $.session.model(), $.session.turns()])
     S.model = modelKey(model)
@@ -188,20 +260,25 @@ export const register: Register = (on, options) => {
     if (kept) {
       margin.left = pixels(kept.left)
       margin.right = pixels(kept.right)
+      marginFrom = 'du stockage du mod'
     }
     await readBranch($)
     newWorld(now())
     await $.command.register({ name: 'village', description: 'Ouvre ou ferme la légende du village' })
     await $.command.register({ name: 'village-test', description: "Compte les images du décor dessinées pendant la dernière minute" })
     await $.command.register({ name: 'village-marges', description: 'Règle la marge gauche et la marge droite du village, en pixels' })
+    await $.command.register({ name: 'village-debug', description: 'Fait le point sur le décor, ses images, la session et les événements reçus' })
     const set = await $.theme.set({ backdrop: { scene: SCENE } })
+    backdrop = set.isDrawn ? { isDrawn: true, why: '' } : { isDrawn: false, why: set.reason }
     if (!set.isDrawn) $.ui.log(`backdrop not drawn: ${set.reason}`, { to: 'debug' })
+    since = now()
     $.clock.every(1000, () => tick($))
     draw($, true)
     return next(e)
   })
 
   on('prompt.submit', ($, e, next) => {
+    saw('prompt.submit')
     if (!e.command && !e.isMeta) {
       evPrompt(now())
       draw($, true)
@@ -210,6 +287,7 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('turn.start', ($, e, next) => {
+    saw('turn.start')
     if (e.agentId === undefined) act($, 'thinking')
     else {
       loops.add(e.agentId)
@@ -220,6 +298,7 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.complete', ($, e, next) => {
+    saw('turn.complete')
     if (e.agentId === undefined) act($, 'idle')
     else if (loops.delete(e.agentId)) {
       S.subagents = loops.size
@@ -229,6 +308,7 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.step', async function* ($, e, next) {
+    saw('turn.step')
     if (e.agentId === undefined) {
       const m = modelKey(e.model), f = effortKey(e.effort)
       if (m !== S.model || f !== S.effort) {
@@ -242,6 +322,7 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', async ($, e, next) => {
+    saw('tool.call')
     const main = e.agentId === undefined
     const tool = String(e.tool)
     const a = toolActivity(tool)
@@ -300,11 +381,12 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('session.measure', ($, e, next) => {
+    saw('session.measure')
     if (e.context.percent !== undefined) S.context = Math.round(e.context.percent)
     const { window } = e.context
     const tokens = e.context.tokens ?? (e.context.percent !== undefined ? (e.context.percent / 100) * window : undefined)
     if (tokens !== undefined) {
-      if (ctxTokens !== undefined && isCompactDrop(ctxTokens, tokens, window)) compacted($)
+      if (ctxTokens !== undefined && isCompactDrop(ctxTokens, tokens, window)) compacted($, 'la baisse du contexte')
       ctxTokens = tokens
     }
     const five = e.rateLimits.find(r => r.kind === 'five_hour')
@@ -315,15 +397,18 @@ export const register: Register = (on, options) => {
   })
 
   on('session.compact', async ($, e, next) => {
+    saw('session.compact')
     const done = await next(e)
     // a precompute installs nothing and a skip leaves the conversation as it is
-    if (e.trigger !== 'precompute' && done.skip === undefined) compacted($)
+    if (e.trigger !== 'precompute' && done.skip === undefined) compacted($, 'session.compact')
     return done
   }).catch(($, e, next) => next(e))
 
   // GitHub events of a subscribed pull request: opened, merged, a failing check
   on('session.receive', ($, e, next) => {
+    saw('session.receive')
     const ev = e.event
+    received = JSON.stringify(ev ?? null).slice(0, 400)
     if (ev?.source === 'github') {
       const d = ev.data
       const outcome = String(d.outcome ?? d.conclusion ?? d.action ?? '')
@@ -345,14 +430,19 @@ export const register: Register = (on, options) => {
     if (e.props.scene !== SCENE || e.surface !== 'desktop') return next(e)
     const { Svg } = $.ui.resolve(e)
     // every pixel is a vector path: the desktop drops images embedded in a scene
-    const t = now()
-    keep(drawn, t)
-    const svg = withMargins(compose(t))
+    // the world as it stood when the frame was asked: frames a second apart show steps a second apart
+    const svg = withMargins(compose(lastDraw || now()))
+    keep(drawn, now())
+    sizes.push(svg.length)
+    sizes.splice(0, sizes.length - drawn.length)
     if (svg.length <= SVG_LIMIT) lastScene = svg
+    else tooBig++
     return <Svg source={lastScene || svg} alt="Session Village, un village en pixel art qui vit au rythme de la session" />
   })
 
   on('command.run', { command: 'village-test' }, async () => ({ text: rhythm(now()) }))
+
+  on('command.run', { command: 'village-debug' }, async $ => ({ text: await report($) }))
 
   // /village-marges gauche 285, droite 410, or both at once: saved in the settings (or the store), drawn at once.
   on('command.run', { command: 'village-marges' }, async ($, e) => {
@@ -364,7 +454,7 @@ export const register: Register = (on, options) => {
       want.right = num(words[1])
     } else {
       for (let i = 0; i < words.length; i += 2) {
-        const side = /^(g|gauche|l|left)$/.test(words[i]) ? 'left' : /^(d|droite|r|right)$/.test(words[i]) ? 'right' : undefined
+        const side = /^(g|gauche|l|left)$/.test(words[i] ?? '') ? 'left' : /^(d|droite|r|right)$/.test(words[i] ?? '') ? 'right' : undefined
         const v = num(words[i + 1])
         if (!side || v === undefined) return { text: MARGIN_HELP }
         want[side] = v
@@ -380,6 +470,7 @@ export const register: Register = (on, options) => {
     if (words.length) {
       if (inSettings) await $.store.delete(MARGIN_STORE)
       else await $.store.set(MARGIN_STORE, { ...margin })
+      marginFrom = margin.left || margin.right ? (inSettings ? 'des réglages du plugin' : 'du stockage du mod') : ''
     }
     draw($, true)
     const line = `Marges du village : gauche ${margin.left} px, droite ${margin.right} px.`

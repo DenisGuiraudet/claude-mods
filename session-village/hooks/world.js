@@ -16,8 +16,10 @@ const hx=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
 const mix=(c1,c2,t)=>{const a=hx(c1),b=hx(c2);return '#'+a.map((v,i)=>Math.round(v+(b[i]-v)*clamp(t)).toString(16).padStart(2,'0')).join('')};
 const tone=(c,k)=>k<0?mix(c,'#000000',-k):mix(c,'#ffffff',k);
 const rnd=seed=>()=>{seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
-const loop=(name,dur,now,ease='ease-in-out',phase=0)=>{const d=((now+phase)/1000)%dur;return `${pose(name,d/dur,ease)}animation:${name} ${dur.toFixed(2)}s ${ease} infinite;animation-delay:-${d.toFixed(2)}s`};
-const once=(name,dur,since,stagger=0,ease='ease-out')=>`${pose(name,clamp((since/1000-stagger)/dur),ease)}animation:${name} ${dur}s ${ease} 1 both;animation-delay:${(stagger-since/1000).toFixed(2)}s`;
+const loop=(name,dur,now,ease='ease-in-out',phase=0)=>{const d=((now+phase)/1000)%dur;return `${still(name,dur,ease,phase)}animation:${name} ${dur.toFixed(2)}s ${ease} infinite;animation-delay:-${d.toFixed(2)}s`};
+// Frozen, an effect shorter than LONG seconds holds its poses longer, to show on a few frames (fxAdd keeps it as long).
+const LONG=3;
+const once=(name,dur,since,stagger=0,ease='ease-out',long=LONG)=>{const k=Math.max(1,long/(dur+stagger));return `${pose(name,clamp((since/1000/k-stagger)/dur),ease)}animation:${name} ${dur}s ${ease} 1 both;animation-delay:${(stagger-since/1000).toFixed(2)}s`};
 // Still poses. A desktop that draws the backdrop frozen (reduced motion, software compositing) strips every
 // animation and draws each element as styled. So an animated element also carries, as plain style, the
 // transform and opacity its keyframes give at this frame's time; a running animation overrides them.
@@ -26,15 +28,26 @@ function stopsOf(name){const k=keysOf(CSS).m[name]||keysOf(VIEWS[VIEW]?.css||'')
   if(!STOPS[k]){const o={};for(const[,at,body]of k.slice(k.indexOf('{')+1,-1).matchAll(/([^{}]+)\{([^{}]*)\}/g))
     for(const d of body.split(';')){const i=d.indexOf(':'),q=d.slice(0,i).trim();if(q!=='transform'&&q!=='opacity')continue;
       for(const a of at.split(',')){const t=a.trim();(o[q]||=[]).push([t==='from'?0:t==='to'?100:parseFloat(t),d.slice(i+1).trim()])}}
-    for(const q in o)o[q].sort((a,b)=>a[0]-b[0]);STOPS[k]=o}
+    for(const q in o){const L=o[q].sort((a,b)=>a[0]-b[0]);if(L[0][0]>0)L.unshift([0,bare(q,L[0][1])]);if(L[L.length-1][0]<100)L.push([100,bare(q,L[L.length-1][1])])}
+    STOPS[k]=o}
   return STOPS[k]}
+// A keyframe left out holds the element's own value: no move or turn, scale 1, full opacity.
+const bare=(q,v)=>q==='opacity'?'1':v.replace(/([a-zA-Z]+)\(([^)]*)\)/g,(m,fn,args)=>`${fn}(${args.replace(NUM,(n,x,u)=>(/^scale/.test(fn)?'1':'0')+(u||''))})`);
 // Between two values of the same shape, number by number; otherwise the nearer one.
 function lerpCss(a,b,k){const sa=a.replace(NUM,'#');if(k<=0||sa!==b.replace(NUM,'#'))return k<.5?a:b;const x=[...a.matchAll(NUM)],y=[...b.matchAll(NUM)];let i=0;
   return sa.replace(/#/g,()=>{const m=x[i],n=y[i++];return f2(+m[1]+(n[1]-m[1])*k)+(m[2]||n[2]||'')})}
-function pose(name,p,ease=''){const o=stopsOf(name);if(!o)return '';const st=/steps\((\d+)/.exec(ease);if(st)p=Math.floor(p*st[1])/st[1];else if(ease==='step-end')p=p<1?0:1;
-  let s='';for(const q in o){const L=o[q],x=p*100;let j=0;while(j<L.length-1&&L[j+1][0]<=x)j++;const a=L[j],b=L[j+1];
-    s+=`${q}:${!b||x<=a[0]?a[1]:lerpCss(a[1],b[1],(x-a[0])/(b[0]-a[0]))};`}
+// The timing function applies to each interval between two keyframes, as CSS does.
+const ez=(k,ease)=>{const st=/steps\((\d+)/.exec(ease);return st?Math.floor(k*st[1]+1e-6)/st[1]:ease==='step-end'?0:ease==='ease-out'?1-(1-k)**2:ease==='ease-in'?k*k:/ease/.test(ease)?k*k*(3-2*k):k};
+function pose(name,p,ease=''){const o=stopsOf(name);if(!o)return '';const x=clamp(p)*100;
+  let s='';for(const q in o){const L=o[q];let j=0;while(j<L.length-2&&L[j+1][0]<=x)j++;const a=L[j],b=L[j+1];
+    s+=`${q}:${!b||x>=100?L[L.length-1][1]:b[0]<=a[0]?b[1]:lerpCss(a[1],b[1],ez(clamp((x-a[0])/(b[0]-a[0])),ease))};`}
   return s}
+// Frozen, the desktop shows a frame a second (W.frame counts them). A loop's still pose goes one step a frame,
+// a smooth loop four frames a cycle: a faster loop sampled once a second would jump back and forth at random.
+function still(name,dur,ease,phase=0){const o=stopsOf(name);if(!o)return '';
+  const seg=Math.max(1,...Object.values(o).map(L=>L.filter((x,i)=>i&&x[0]-L[i-1][0]>1).length)),st=/steps\((\d+)/.exec(ease);
+  const n=Math.max(dur,st?st[1]*seg:ease==='step-end'?seg:4);
+  return pose(name,((W.frame+.5+phase/1000/dur*n)%n)/n,ease)}
 const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
 const dist=(a,b)=>Math.hypot(b[0]-a[0],b[1]-a[1]);
 // The scene fits the window whole (meet). Past its 1600x1000 the grass goes on, shaded (FRAME), and the
@@ -94,6 +107,10 @@ function sigValue(id){switch(id){
   case 'todo':return `${S.todoDone}/${S.todoTotal}`;
   case 'waves':{const st=S.steps;return `Wave ${Math.min(S.waveCurrent,S.wavesTotal)}/${S.wavesTotal}`+(st.merged?' mergée':st.pr?' PR':st.push?' push':st.commit?' commit':'')}}return ''}
 
+// A sign tells what its place shows: the tool, or the measure and its value.
+const SIGN={context:'Contexte',cost:'Coût',todo:'Tâches'};
+const signText=id=>SIGN[id]?`${SIGN[id]} · ${sigValue(id)}`:/^(bash|edit|read|web)$/.test(id)?SIG[id].what:sigValue(id);
+
 function derive(now){
   const m=MODELS[S.model],ctx=S.context/100,rate=S.rate/100,pre=!S.started;
   return {m,cls:CLASS[S.model],eff:EFFORT[S.effort],ctx,rate,now,pre,wake:now<W.wakeUntil,
@@ -104,7 +121,7 @@ function derive(now){
 }
 
 // ---------- world ----------
-const W={seed:(Math.random()*1e9)|0,ambNext:0,ents:[],fx:[],fires:[],nid:1,dirty:true,letterUntil:0,wakeUntil:0,costPulse:0,todoPulse:0,festUntil:0,nextSpawn:0,nextAdv:0,navKey:null,lastCost:S.cost,lastTodo:S.todoDone};
+const W={seed:(Math.random()*1e9)|0,frame:0,lite:0,ambNext:0,ents:[],fx:[],fires:[],nid:1,dirty:true,letterUntil:0,wakeUntil:0,costPulse:0,todoPulse:0,festUntil:0,nextSpawn:0,nextAdv:0,navKey:null,lastCost:S.cost,lastTodo:S.todoDone};
 let VIEW='valley',LABELS=true,NAV={nodes:{},adj:{}};
 
 function navFor(V){
@@ -156,7 +173,7 @@ function leave(e,now){
   else if(e.kind==='adv')goTo(e,V.places.agents.node,now,120);
 }
 function kill(e,now){const p=pos(e,now);fxAdd('puff',now,{at:[p[0]+e.jx,p[1]+e.jy-10],dur:900});e.state='gone';W.dirty=true}
-function fxAdd(kind,now,o={}){W.fx.push({kind,t0:now,until:now+(o.dur||3000),...o});W.dirty=true}
+function fxAdd(kind,now,o={}){W.fx.push({kind,t0:now,until:now+Math.max(o.dur||3000,LONG*1000),...o});W.dirty=true}
 
 function newWorld(now){
   const V=VIEWS[VIEW];if(!V)return;
@@ -232,6 +249,7 @@ function ensure(now,D,V){
   else if(ad.length>(D.pre?0:S.subagents))leave(ad[ad.length-1],now);
 }
 function step(now){
+  W.frame++;
   const V=VIEWS[VIEW];if(!V)return;navFor(V);const D=derive(now);
   if(S.cost>W.lastCost+.01){W.costPulse=now+2600;const p=V.places.cost;if(p&&p.fx)fxAdd('coin',now,{at:p.fx,dur:1400})}
   if(S.todoDone>W.lastTodo){W.todoPulse=now+2600;const p=V.places.todo;if(p&&p.fx)fxAdd('sparkle',now,{at:p.fx,dur:1600})}
@@ -422,7 +440,7 @@ function drawActor(e,now,D,V,s,sc,k){
     const d4=L.map((_,i)=>DIR4(rest[i+1][0]-rest[i][0],rest[i+1][1]-rest[i][1]));e.face=d4[d4.length-1];e.dir=e.face===2?-1:1;
     const same=d4.every(d=>d===d4[0]);for(const d of d4)need(d,2);
     if(!same)KF.push(`@keyframes ${id}d{${d4.map((d,i)=>`${pc[i]}%{transform:translateX(${-16*d}px)}`).join('')}100%{transform:translateX(${-16*e.face}px)}}`);
-    const legs=LITE?img:`<g style="${pose('kw4',(now/600)%1,'steps(4)')}animation:kw4 .6s steps(4) ${Math.max(1,Math.ceil(sec/.6))}">${img}</g>`;
+    const legs=LITE?img:`<g style="${still('kw4',.6,'steps(4)')}animation:kw4 .6s steps(4) ${Math.max(1,Math.ceil(sec/.6))}">${img}</g>`;
     const turn=same?`<g transform="translate(${-16*d4[0]},0)">${legs}</g>`:`<g transform="translate(${-16*d4[0]},0)" style="animation:${id}d ${dur}s step-end both">${legs}</g>`;
     return `<g transform="translate(${f(rest[0][0]+e.jx)},${f(rest[0][1]+e.jy)})" style="animation:${id} ${dur}s linear both"><g transform="scale(${f2(sc)})">${shadow}${aura}${box(turn,0)}</g></g>`;
   }
@@ -512,7 +530,7 @@ function effects(now,D,V){
     if(x.kind==='puff'){let s='';for(let j=0;j<6;j++){const a=j/6*Math.PI*2;s+=`<circle cx="${f(Math.cos(a)*12)}" cy="${f(Math.sin(a)*9)}" r="11" fill="#efeaf6" class="kc" style="${once('kpuff',.9,since,j*.02)}"/>`}o+=`<g transform="translate(${f(x.at[0])},${f(x.at[1])})">${s}</g>`}
     else if(x.kind==='coin'){let s='';for(let j=0;j<4;j++)s+=`<g transform="translate(${(j-1.5)*15},0)"><g style="${once('kcoin',1.2,since,j*.12)}">${pxArt(COIN,KP,-6,-6,3)}</g></g>`;o+=`<g transform="translate(${f(x.at[0])},${f(x.at[1])})">${s}</g>`}
     else if(x.kind==='sparkle'){let s='';const n=x.big?12:8;for(let j=0;j<n;j++){const a=-90+(j-(n-1)/2)*(x.big?16:20);s+=`<g transform="rotate(${a+90}) translate(0,-6)"><rect x="-2.5" y="-2.5" width="5" height="5" fill="${j%2?'#ffe27a':'#ffffff'}" transform="rotate(45)" style="${once('kspk',1,since,(j%4)*.18)}"/></g>`}o+=`<g transform="translate(${f(x.at[0])},${f(x.at[1])})"><g style="${once('klate',x.big?2.6:1.6,since,0,'linear')}">${s}</g></g>`}
-    else if(x.kind==='firework'){o+=`<g transform="translate(${f(x.x)},${f(x.y)})"><line x1="0" y1="0" x2="0" y2="300" stroke="${x.col}" stroke-width="3" class="kc" style="transform-origin:50% 100%;${once('klaunch',.5,since)}"/><use href="#kfw" style="color:${x.col};--fd:${(.5-since/1000).toFixed(2)}s;${pose('kburst',clamp((since/1000-.5)/1.5)).replace(/(^|;)(t|o)[a-z]+:/g,'$1--f$2:')}"/></g>`}
+    else if(x.kind==='firework'){o+=`<g transform="translate(${f(x.x)},${f(x.y)})"><line x1="0" y1="0" x2="0" y2="300" stroke="${x.col}" stroke-width="3" class="kc" style="transform-origin:50% 100%;${once('klaunch',.5,since,0,'ease-out',0)}"/><use href="#kfw" style="color:${x.col};--fd:${(.5-since/1000).toFixed(2)}s;${pose('kburst',clamp((since/1000-.5)/1.5)).replace(/(^|;)(t|o)[a-z]+:/g,'$1--f$2:')}"/></g>`}
     else if(x.kind==='spell'){const c=D.m.a;o+=`<circle cx="${f(hp[0])}" cy="${f(hp[1]-20)}" r="20" fill="none" stroke="${c}" stroke-width="10" vector-effect="non-scaling-stroke" class="kc" style="${once('kspell',1.8,since)}"/><circle cx="${f(hp[0])}" cy="${f(hp[1]-20)}" r="20" fill="none" stroke="#fff" stroke-width="3" vector-effect="non-scaling-stroke" class="kc" style="${once('kspell',1.8,since,.15)}"/><rect ${BLEED} fill="#ffffff" style="${once('kflash',1.2,since)}"/>`}
     else if(x.kind==='bird'){const a=V.birdFrom||[1700,60],tx=hp[0]+8,ty=hp[1]-48,cx=(a[0]+tx)/2,cy=Math.min(a[1],ty)-120,id='kq'+x.t0%1e6,bz=t=>{const u=1-t;return[f(u*u*a[0]+2*u*t*cx+t*t*tx),f(u*u*a[1]+2*u*t*cy+t*t*ty)]};
       KF.push(`@keyframes ${id}{${[0,1,2,3,4,5,6].map(i=>{const[x,y]=bz(i/6);return `${f(i/6*100)}%{transform:translate(${x}px,${y}px)}`}).join('')}}`);
@@ -546,7 +564,7 @@ function atmosphere(now,D,V,R){
 function signs(now,D,V){
   let o='';
   for(const id in V.places){const P=V.places[id];if(!P.label)continue;
-    const act=sigActive(id,now),col=sigCol(id,D),text=`${P.name} · ${sigValue(id)}`;
+    const act=sigActive(id,now),col=sigCol(id,D),text=signText(id);
     o+=(V.sign||woodSign)(P.label[0],P.label[1],{id,act,col,text,name:P.name,value:sigValue(id),now,D});
   }
   return o;
@@ -569,7 +587,7 @@ function styleFor(svg,V){const A=keysOf(CSS),B=keysOf(V.css||''),used=new Set([.
   let o=A.base+B.base;for(const n of used)o+=A.m[n]||B.m[n]||'';return o+KF.join('')}
 // The desktop refuses a scene over 131072 characters: a frame over BUDGET is drawn again with LITE.
 const BUDGET=120000;
-function compose(now){let s=composeOnce(now);if(s.length>BUDGET){LITE=true;try{s=composeOnce(now)}finally{LITE=false}}return s}
+function compose(now){let s=composeOnce(now);if(s.length>BUDGET){W.lite++;LITE=true;try{s=composeOnce(now)}finally{LITE=false}}return s}
 function composeOnce(now){
   const V=VIEWS[VIEW],D=derive(now);navFor(V);TUSE=new Set();KF=[];AUSE=new Map();
   const R=V.draw(now,D);

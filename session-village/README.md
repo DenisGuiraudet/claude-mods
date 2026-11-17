@@ -13,6 +13,8 @@ Il faut Claude Code v2.1.323 ou plus récent. Le fond s'affiche dans l'app Deskt
 
 ## Ce que montre chaque lieu
 
+Sur chaque lieu, un panneau indique ce qu'il suit : l'outil (Bash, Edit, Write…) ou la mesure et sa valeur (« Contexte · 44 % », « Coût · $3.00 »). Le panneau du lieu actif se balance.
+
 À droite, la partie visible même avec la barre latérale ouverte :
 
 | Lieu | Signal | Ce qui change |
@@ -50,6 +52,7 @@ Les waves suivent la branche git courante. Un titre de PR contenant `[2/4]` fixe
 | `/village` | Ouvre ou ferme la légende : chaque lieu, sa valeur en direct et ce qu'il faut regarder. Le lieu actif est mis en avant. |
 | `/village-marges` | Règle la place laissée à gauche et à droite du village (voir plus bas). |
 | `/village-test` | Indique combien d'images du fond l'app a dessinées pendant la dernière minute, et à quel rythme. |
+| `/village-debug` | Fait le point en texte : version de Claude Code, décor dessiné ou non, images (nombre, rythme, taille), horloge, état de la session, personnages et effets, marges, événements reçus (dont le dernier événement GitHub tel qu'il arrive), puis une série de vérifications sur la dernière image. |
 
 ## Marges
 
@@ -65,8 +68,8 @@ Le fond couvre toute la fenêtre, y compris sous la barre latérale et les panne
 ## Comment le fond est dessiné
 
 - **En tracés vectoriels** : l'app Desktop n'affiche pas les images intégrées à une scène. Chaque suite de pixels d'une même couleur sur une ligne est donc un trait. L'herbe est un motif répété, les cases du décor présentes plusieurs fois sont dessinées une seule fois, et un personnage n'envoie que ce qu'il montre (debout, la marche, l'attaque).
-- **Image par image** : les animations sont en CSS, par paliers. Quand l'app fige le fond (réglage « Réduire les animations », rendu sans accélération matérielle), elle retire toutes les animations. Chaque élément animé porte donc aussi sa position du moment, et la scène reste juste image par image.
-- **Une seconde** : le monde avance chaque seconde. Une image part quand quelque chose a changé, ou tant que quelqu'un marche ou qu'un effet joue. Les villageois marchent à mi-vitesse, pour avancer de moins d'une case d'une image à l'autre. En simulation sur dix minutes : aucune image avant le premier message, environ 60 par minute ensuite. Mesuré dans l'app avec `/village-test` : 60 images dessinées en une minute, une par seconde.
+- **Image par image** : les animations sont en CSS, par paliers. Quand l'app fige le fond (réglage « Réduire les animations », rendu sans accélération matérielle), elle retire toutes les animations. Chaque élément animé porte donc aussi sa position du moment, et la scène reste juste image par image. Une boucle plus rapide que la seconde (pas de marche, clignements, flammes) avance alors d'un cran par image au lieu de sauter au hasard, et un effet court (fumée, pièces, sort) reste au moins 3 secondes pour se voir sur plusieurs images.
+- **Une seconde** : le monde avance chaque seconde. Une image part quand quelque chose a changé, ou tant que quelqu'un marche ou qu'un effet joue. Elle montre le monde à l'heure où elle a été demandée, pas à celle où l'app la dessine : les pas restent réguliers même quand l'app dessine avec un peu de retard. Les villageois marchent à mi-vitesse, pour avancer de moins d'une case d'une image à l'autre. En simulation sur dix minutes : aucune image avant le premier message, environ 60 par minute ensuite. Mesuré dans l'app avec `/village-test` : 60 images dessinées en une minute, une par seconde.
 - **Taille** : une image fait environ 80 000 caractères au repos et jusqu'à 120 000 en plein travail, sous la limite de 131 072. Au-delà de 120 000, les personnages en marche glissent sur leur image debout.
 
 ## Développer le mod

@@ -21,6 +21,10 @@ export interface SessionState {
 }
 export interface WorldState {
   dirty: boolean;
+  /** Steps taken, one a second: still poses go one step a frame. */
+  frame: number;
+  /** Frames over budget, drawn again without walk cycles. */
+  lite: number;
   fx: unknown[];
   fires: unknown[];
   ents: unknown[];
