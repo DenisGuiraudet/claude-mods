@@ -55,6 +55,24 @@ const dist=(a,b)=>Math.hypot(b[0]-a[0],b[1]-a[1]);
 const BLEED='x="-1600" y="-1000" width="4800" height="3000"';
 const MARGIN='<g transform="scale(3)"><rect x="-544" y="-336" width="1632" height="1008" fill="url(#vg)"/></g>';
 const FRAME='<path d="M-1600 -1000h4800v3000h-4800zM0 0v1000h1600v-1000z" fill="#14210f" fill-rule="evenodd" opacity=".35"/>';
+// Only CSS knows the window's size (vw, vh). The world (#kw) is drawn three times at the window's height,
+// each copy clipped: the left part up to x 690, the river (690-940), the right part from 940. When the window
+// is too narrow for the whole village, the meadow on each side of the river goes first (the buildings stay,
+// 0-440 and 1195-1600), then the edges pass under the margins. A margin grows with the window: none under
+// 700 px wide, all of it from 1600 px. On a short window the signs grow to stay readable.
+const CUT={l:690,r:940,keepL:440,keepR:1195},vh=n=>`${f(n/10)}vh`;
+function layoutCss({left=0,right=0}={}){
+  const m=v=>v>0?`clamp(0px,calc((100vw - 700px) / 900 * ${v}),${v}px)`:'0px',C=CUT,river=C.r-C.l;
+  return `.kv{--ml:${m(left)};--mr:${m(right)};--xc:calc((var(--ml) + 100vw - var(--mr)) / 2 - ${vh(river/2)});`
+    +`--x0:max(calc(var(--xc) - ${vh(C.l)}),min(var(--ml),calc(var(--xc) - ${vh(C.keepL)})));`
+    +`--x1:min(calc(var(--xc) + ${vh(1600-C.l)}),max(calc(100vw - var(--mr)),calc(var(--xc) + ${vh(river+1600-C.keepR)})))}`
+    +`.kml{transform:translate(var(--x0),0)}.kmc{transform:translate(calc(var(--xc) - ${vh(C.l)}),0)}.kmr{transform:translate(calc(var(--x1) - 160vh),0)}`
+    +`.kvl{width:calc(var(--xc) + 1px)}.kvc{transform:translate(var(--xc),0);width:calc(${vh(river)} + 1px)}.kvr{transform:translate(calc(var(--xc) + ${vh(river)}),0);width:100vw}`
+    +`.ksg{transform:scale(var(--sg,1))}@media (max-height:900px){.kv{--sg:1.12}}@media (max-height:780px){.kv{--sg:1.28}}@media (max-height:660px){.kv{--sg:1.5}}`}
+// The world at the window's height (meet in a box ten windows wide), and the three clipped copies.
+const LAYOUT_DEFS='<svg id="kws" width="1000%" height="100%" viewBox="0 0 1600 1000" preserveAspectRatio="xMinYMid meet" overflow="visible"><use href="#kw"/></svg>'
+  +['l','c','r'].map(k=>`<clipPath id="kv${k}"><rect class="kv${k}" height="100%"/></clipPath>`).join('');
+const LAYOUT=['l','c','r'].map(k=>`<g clip-path="url(#kv${k})"><g class="km${k}"><use href="#kws"/></g></g>`).join('');
 const pick=(a,r=Math.random)=>a[Math.floor(r()*a.length)];
 const INK='#2a2230';
 const K='class="o"'; // outline: see .o in CSS
@@ -565,7 +583,7 @@ function signs(now,D,V){
   let o='';
   for(const id in V.places){const P=V.places[id];if(!P.label)continue;
     const act=sigActive(id,now),col=sigCol(id,D),text=signText(id);
-    o+=(V.sign||woodSign)(P.label[0],P.label[1],{id,act,col,text,name:P.name,value:sigValue(id),now,D});
+    o+=`<g class="ksg" style="transform-origin:${f(P.label[0])}px ${f(P.label[1])}px">${(V.sign||woodSign)(P.label[0],P.label[1],{id,act,col,text,name:P.name,value:sigValue(id),now,D})}</g>`;
   }
   return o;
 }
@@ -587,8 +605,8 @@ function styleFor(svg,V){const A=keysOf(CSS),B=keysOf(V.css||''),used=new Set([.
   let o=A.base+B.base;for(const n of used)o+=A.m[n]||B.m[n]||'';return o+KF.join('')}
 // The desktop refuses a scene over 131072 characters: a frame over BUDGET is drawn again with LITE.
 const BUDGET=120000;
-function compose(now){let s=composeOnce(now);if(s.length>BUDGET){W.lite++;LITE=true;try{s=composeOnce(now)}finally{LITE=false}}return s}
-function composeOnce(now){
+function compose(now,margins){let s=composeOnce(now,margins);if(s.length>BUDGET){W.lite++;LITE=true;try{s=composeOnce(now,margins)}finally{LITE=false}}return s}
+function composeOnce(now,margins){
   const V=VIEWS[VIEW],D=derive(now);navFor(V);TUSE=new Set();KF=[];AUSE=new Map();
   const R=V.draw(now,D);
   const items=(R.props||[]).slice(),need=new Set();
@@ -601,9 +619,9 @@ function composeOnce(now){
   if(LABELS)o+=signs(now,D,V);
   let fw='';if(W.fx.some(x=>x.kind==='firework')){for(let j=0;j<18;j++)fw+=`<g transform="rotate(${j*20})"><circle r="4" fill="${j%2?'#fff':'currentColor'}" style="transform:var(--ft);opacity:var(--fo);animation:kburst 1.5s ease-out 1 both;animation-delay:var(--fd,0s)"/></g>`;fw=`<g id="kfw">${fw}</g>`}
   if(V.sprites)need.clear();if(W.ents.some(e=>e.kind==='cart'))need.add('cart');
-  const defs=`<defs>${fw}${charDefs(D,V,need)}${D.storm>0?`<pattern id="krainp" width="80" height="120" patternUnits="userSpaceOnUse"><path d="M20 0 l-6 22 M62 40 l-6 22 M40 84 l-6 22" stroke="#d4dcff" stroke-opacity=".6" stroke-width="1.8"/></pattern>`:''}${V.sprites?'<ellipse id="ksh" rx="15" ry="5" fill="#3f2631" opacity=".28"/>':''}${[...AUSE].map(([k,fs])=>`<g id="a_${k}" transform="translate(0 .5)">${[...fs].map(([c,b])=>{const A=ACTORS[k][c];return (b&2?A[1]:b&1?A[0]:'')+(b&4?A[2]:'')}).join('')}</g>`).join('')}${R.defs||''}${tileDefs()}</defs>`;
-  const body=(defs+o).replace(/ shape-rendering="crispEdges"/g,'');
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid meet" shape-rendering="crispEdges" role="img" aria-label="${esc(V.name)}"><style>${pixelCss(body)}${styleFor(body,V)}</style>${body}${FRAME}</svg>`;
+  const defs=`<defs>${fw}${charDefs(D,V,need)}${D.storm>0?`<pattern id="krainp" width="80" height="120" patternUnits="userSpaceOnUse"><path d="M20 0 l-6 22 M62 40 l-6 22 M40 84 l-6 22" stroke="#d4dcff" stroke-opacity=".6" stroke-width="1.8"/></pattern>`:''}${V.sprites?'<ellipse id="ksh" rx="15" ry="5" fill="#3f2631" opacity=".28"/>':''}${[...AUSE].map(([k,fs])=>`<g id="a_${k}" transform="translate(0 .5)">${[...fs].map(([c,b])=>{const A=ACTORS[k][c];return (b&2?A[1]:b&1?A[0]:'')+(b&4?A[2]:'')}).join('')}</g>`).join('')}${R.defs||''}${tileDefs()}<g id="kw">${o}${FRAME}</g>${LAYOUT_DEFS}</defs>`;
+  const body=defs.replace(/ shape-rendering="crispEdges"/g,'');
+  return `<svg xmlns="http://www.w3.org/2000/svg" class="kv" width="100%" height="100%" shape-rendering="crispEdges" role="img" aria-label="${esc(V.name)}"><style>${pixelCss(body)}${styleFor(body,V)}${layoutCss(margins)}</style>${body}${LAYOUT}</svg>`;
 }
 const VIEWS={};
 
@@ -710,8 +728,9 @@ function bank(D,now,L){const act=sigActive('cost',now);let o='';const k=Math.min
   if(act)o+=`<rect x="${X(28)-6}" y="${Y(6)}" width="60" height="96" fill="#fdbe53" opacity=".35" style="${loop('kpulse',.6,now,'steps(2)')}"/>`;
   return [Y(9)+20,o]}
 const CROPS=[[64,66],[4,6],[16,18],[28,30],[40,42],[52,54]];
-function farm(D,now,L){const act=sigActive('todo',now),P=[];
-  for(let i=0;i<10;i++){if(i>=S.todoTotal)continue;const c=4+i%5,r=i<5?11:13,cp=CROPS[i%6];P.push([Y(r)+40,T('f'+(i<S.todoDone?cp[1]:cp[0]),X(c),Y(r)-6)])}
+// Ten plots at most: past ten tasks, the ripe plots keep the share of the tasks done, all ripe only once all are.
+function farm(D,now,L){const act=sigActive('todo',now),P=[],n=Math.min(10,S.todoTotal),ripe=n?Math.floor(S.todoDone*n/S.todoTotal):0;
+  for(let i=0;i<n;i++){const c=4+i%5,r=i<5?11:13,cp=CROPS[i%6];P.push([Y(r)+40,T('f'+(i<ripe?cp[1]:cp[0]),X(c),Y(r)-6)])}
   if(act)P.push([Y(14),`<rect x="${X(4)}" y="${Y(11)}" width="240" height="144" fill="#c6e58d" opacity=".3" style="${loop('kpulse',.6,now,'steps(2)')}"/>`]);
   P.push([Y(17)+30,`<g style="${loop('vp-graze',7,now,'steps(14)')}">${T('f122',X(1),Y(16)+12)}</g>`],[Y(18)+40,`<g style="${loop('vp-graze',9,now,'steps(9)',3000)}">${TF('f121',X(2),Y(18))}</g>`],[Y(19)+30,`<g style="${loop('vp-graze',8,now,'steps(8)',1500)}">${T('f120',X(6),Y(19))}</g>`]);
   return P}

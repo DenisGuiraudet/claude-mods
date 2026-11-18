@@ -9,7 +9,7 @@
       "type": "number",
       "title": "Marge gauche (px)",
       "description": "Espace laissé libre à gauche du village, par exemple la largeur de la barre latérale. 0 : aucune marge.",
-      "default": 0,
+      "default": 300,
       "min": 0,
       "max": 2000
     },
@@ -17,9 +17,17 @@
       "type": "number",
       "title": "Marge droite (px)",
       "description": "Espace laissé libre à droite du village, par exemple la largeur d'un panneau ouvert. 0 : aucune marge.",
-      "default": 0,
+      "default": 300,
       "min": 0,
       "max": 2000
+    },
+    "frame_interval": {
+      "type": "number",
+      "title": "Temps entre deux images (s)",
+      "description": "Le monde avance et une image du décor peut partir une fois par intervalle. Moins pour plus de fluidité, plus pour une machine qui peine. Entre 0,25 et 10.",
+      "default": 1,
+      "min": 0.25,
+      "max": 10
     }
   }
 }

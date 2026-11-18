@@ -49,7 +49,8 @@ export function newWorld(now: number): void;
 export function step(now: number): void;
 export function retarget(now: number): void;
 export function wake(now: number): void;
-export function compose(now: number): string;
+/** The scene at `now`; `margins` (px) leave room on each side, in full from a 1600 px wide window. */
+export function compose(now: number, margins?: { left: number; right: number }): string;
 export function busy(since: number): boolean;
 export function ambient(now: number, D: Derived, V: View, id?: string): { id: string; name: string } | null;
 export function evPrompt(now: number): void;

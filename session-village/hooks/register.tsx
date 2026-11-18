@@ -1,12 +1,12 @@
 // Session Village: a pixel-art village behind the conversation that lives at the pace of the session.
 // Signals: model and effort (turn.step), context, 5-hour limit and cost (session.measure), the tool
 // at work (tool.call), sub-agents (turn.start/complete of other loops), tasks (TodoWrite, TaskCreate,
-// TaskUpdate), commits, pushes and PRs (Bash and GitHub tools, GitHub events), compaction.
+// TaskUpdate, the desktop app's task list), commits, pushes and PRs (Bash and GitHub tools, GitHub events), compaction.
 // The world steps every second, and a frame goes out when it changed, or while someone walks or an effect
 // plays: a desktop that freezes the backdrop shows only the frames. /village opens the legend,
 // /village-test tells how many frames the desktop drew in the last minute, /village-marges sets the room
-// left on each side of the village (userConfig margin_left and margin_right), /village-debug reports what
-// the mod sees and checks the last frame.
+// left on each side of the village (userConfig margin_left and margin_right), /village-sync the time between
+// two frames (userConfig frame_interval), /village-debug reports what the mod sees and checks the last frame.
 import type { EngineInterface, Register } from 'claude-code'
 
 import {
@@ -18,13 +18,22 @@ import type { Activity, EffortKey, ModelKey, Steps } from './world.js'
 type $T = EngineInterface
 const SCENE = 'valley'
 const PANE = 'village'
-const MIN_GAP = 1000 // ms between two frames for small changes; events go out at once
+// The beat, in ms: the world steps and a frame may go out once per beat; events go out at once. 1 s by
+// default, set by userConfig frame_interval or /village-sync (seconds) to try a slower or faster machine.
+const DEFAULT_GAP = 1000
+let gap = DEFAULT_GAP
+let gapFrom = 'par défaut'
+const beat = (v: unknown): number | undefined =>
+  typeof v === 'number' && v > 0 ? Math.round(Math.min(10, Math.max(0.25, v)) * 1000) : undefined
+const SYNC_STORE = 'sync' // seconds, when the settings have no row for frame_interval
+const SYNC_HELP = 'Exemples : /village-sync 0,5 (deux images par seconde), /village-sync 2 (une toutes les 2 s), /village-sync 1 (par défaut). Entre 0,25 et 10 s.'
 const COMPACT_GAP = 30_000 // ms: session.compact and the context drop are one compaction
 const SVG_LIMIT = 131072 // characters: the desktop refuses a longer scene
 const now = () => Date.now()
 
 let lastDraw = 0
 let pending: { cancel: () => void } | null = null
+let clock: { cancel: () => void } | null = null
 let cwd = ''
 let branch = ''
 let ctxTokens: number | undefined // last context fill session.measure reported, in tokens
@@ -35,8 +44,11 @@ const loops = new Set<string>()
 const asked: number[] = []
 const drawn: number[] = []
 const keep = (a: number[], t: number): number[] => { a.push(t); while ((a[0] ?? t) < t - 60_000) a.shift(); return a }
+// Frames asked before the desktop first drew one went to no one (it was not attached yet): they do not count.
+let firstDrawn = 0
+const askedIn = (t: number): number[] => asked.filter(x => x >= Math.max(t - 60_000, firstDrawn))
 function rhythm(t: number): string {
-  const d = drawn.filter(x => x >= t - 60_000), a = asked.filter(x => x >= t - 60_000)
+  const d = drawn.filter(x => x >= t - 60_000), a = askedIn(t)
   const gaps = d.slice(1).map((x, i) => (x - (d[i] ?? x)) / 1000), s = (n: number) => n.toFixed(1).replace('.', ',')
   return gaps.length
     ? `Dernière minute : ${a.length} images demandées, ${d.length} dessinées, une toutes les ${s(gaps.reduce((x, y) => x + y, 0) / gaps.length)} s en moyenne (écart le plus long ${s(Math.max(...gaps))} s).`
@@ -53,26 +65,31 @@ let compactVia = ''
 let received = '' // the last session.receive event, as it came
 const seen = new Map<string, number>()
 const saw = (event: string): void => { seen.set(event, (seen.get(event) ?? 0) + 1) }
+// The size the desktop reports with each backdrop it asks (cells of its code font), and its last ten changes.
+type View = { columns: number; rows: number; isFullscreen?: boolean }
+const viewOf = (v?: View): string =>
+  v ? `${v.columns} colonnes × ${v.rows} lignes${v.isFullscreen === undefined ? '' : `, isFullscreen ${v.isFullscreen}`}` : 'non mesurée'
+const views: { at: number; view: string }[] = []
+const ago = (ms: number): string => (ms < 60_000 ? `${Math.round(ms / 1000)} s` : `${Math.round(ms / 60_000)} min`)
 const tasks = new Map<string, string>()
-// Room left on each side of the village, in CSS pixels: the root svg gets that padding, so the village fits
-// between the margins, and its shaded grass runs on under them (overflow visible).
-const margin = { left: 0, right: 0 }
+// Room left on each side of the village, in CSS pixels, in full from a 1600 px wide window and less below
+// (world.js lays the scene out in CSS).
+// By default, room for the sidebar on the left and an open pane on the right (as in plugin.json).
+const DEFAULT_MARGIN = { left: 300, right: 300 } as const
+const margin: Record<'left' | 'right', number> = { ...DEFAULT_MARGIN }
 const MARGIN_KEY = { left: 'margin_left', right: 'margin_right' } as const
 const pixels = (v: unknown): number => (typeof v === 'number' && v > 0 ? Math.min(2000, Math.round(v)) : 0)
-function withMargins(svg: string): string {
-  if (!margin.left && !margin.right) return svg
-  return svg.replace('<svg ', '<svg class="kpad" ')
-    .replace('<style>', `<style>.kpad{box-sizing:border-box;padding:0 ${margin.right}px 0 ${margin.left}px;overflow:visible}`)
-}
 // Margins /village-marges could not write to the settings (no /config row, as for a --plugin-dir plugin):
-// kept in the store instead, and preferred to the settings at the next session.
+// kept in the store instead, and preferred to the settings at the next session, until the settings change.
 const MARGIN_STORE = 'margins'
-async function saveMargin($: $T, side: 'left' | 'right'): Promise<boolean> {
-  const field = MARGIN_KEY[side]
+// What the settings said when the plugin loaded. A value the mod kept notes the settings it stood in for
+// (`over`, the defaults when absent): once they say something else, someone set them in the app, and they win.
+const asSet = { left: DEFAULT_MARGIN.left as number, right: DEFAULT_MARGIN.right as number, gap: DEFAULT_GAP }
+async function saveSetting($: $T, field: string, value: number): Promise<boolean> {
   const rows = await $.config.list().catch(() => [])
   const row = rows.find(r => r.key === `${$.plugin.name}.${field}` || (r.key.startsWith(`${$.plugin.name}@`) && r.key.endsWith(`.${field}`)))
   if (!row) return false
-  const set = await $.config.set({ key: row.key, value: margin[side] }).catch((err: unknown) => ({ deny: String(err) }))
+  const set = await $.config.set({ key: row.key, value }).catch((err: unknown) => ({ deny: String(err) }))
   return !set.deny
 }
 const MARGIN_HELP = 'Exemples : /village-marges gauche 285, /village-marges droite 410, /village-marges 285 410. 0 retire une marge.'
@@ -80,7 +97,7 @@ const MARGIN_HELP = 'Exemples : /village-marges gauche 285, /village-marges droi
 // ---------- frames ----------
 function draw($: $T, urgent = false): void {
   W.dirty = true
-  const wait = urgent ? 0 : MIN_GAP - (now() - lastDraw)
+  const wait = urgent ? 0 : gap - (now() - lastDraw)
   if (wait <= 0) {
     pending?.cancel()
     pending = null
@@ -92,11 +109,16 @@ function draw($: $T, urgent = false): void {
   }
   if (!pending) pending = $.clock.after(wait, () => { pending = null; draw($) })
 }
-// Every second: each villager acts when its own timer runs out, and the frame follows.
+// Every beat: each villager acts when its own timer runs out, and the frame follows.
+function startClock($: $T): void {
+  clock?.cancel()
+  since = now()
+  clock = $.clock.every(gap, () => tick($))
+}
 function tick($: $T): void {
   keep(ticks, now())
   step(now())
-  // frozen, the scene moves only from one frame to the next: one a second while it moves on its own
+  // frozen, the scene moves only from one frame to the next: one a beat while it moves on its own
   if (W.dirty || busy(lastDraw)) draw($)
 }
 function act($: $T, a: Activity): void {
@@ -120,7 +142,9 @@ const TOOL: Record<string, Activity> = {
   Read: 'read', Grep: 'read', Glob: 'read', LS: 'read',
   WebFetch: 'web', WebSearch: 'web',
 }
-const toolActivity = (tool: string): Activity | null => TOOL[tool] ?? (tool.startsWith('mcp__') ? 'web' : null)
+// An MCP tool is the post's business, but for the desktop app's own (its task list, its panes, its sessions).
+const toolActivity = (tool: string): Activity | null =>
+  TOOL[tool] ?? (tool.startsWith('mcp__') && !tool.startsWith('mcp__ccd_') ? 'web' : null)
 
 // ---------- compaction: session.compact, or a sharp context drop when another plugin answered it ----------
 function compacted($: $T, via: string): void {
@@ -132,14 +156,43 @@ function compacted($: $T, via: string): void {
   evCompact(t)
   draw($, true)
 }
-// Halved and down by a fifth of the window at least; counted in tokens so a model switch to a
-// larger window does not look like a drop.
-const isCompactDrop = (before: number, after: number, window: number): boolean =>
-  after <= before / 2 && before - after >= window / 5
+// Halved and down by COMPACT_DROP tokens at least, whatever the window: a conversation compacted early on a
+// 1M window never loses a fifth of it. Counted in tokens so a model switch to a larger window does not look
+// like a drop.
+const COMPACT_DROP = 20_000
+const isCompactDrop = (before: number, after: number): boolean => after <= before / 2 && before - after >= COMPACT_DROP
 
+// The true counts: the farm caps its plots, the sign tells them all.
 function setTasks(): void {
-  S.todoTotal = Math.min(10, tasks.size)
-  S.todoDone = Math.min(S.todoTotal, [...tasks.values()].filter(v => v === 'completed').length)
+  S.todoTotal = tasks.size
+  S.todoDone = [...tasks.values()].filter(v => v === 'completed').length
+}
+// The desktop app keeps its task list with a tool of its own: the whole list (`items`), one step forward
+// (`advance`), or steps by their 1-based number (`done`, `start`). Its wrap-up checks every step off.
+const PLAN_TOOL = 'mcp__ccd_turn__update_plan'
+const WRAP_TOOL = 'mcp__ccd_turn__wrap_up'
+type Plan = { items?: unknown; advance?: unknown; done?: unknown; start?: unknown }
+function planTasks(p: Plan): void {
+  if (Array.isArray(p.items)) {
+    tasks.clear()
+    p.items.forEach((item: { status?: unknown } | null, i) => tasks.set(String(i + 1), String(item?.status ?? 'pending')))
+  }
+  const first = (status: string) => [...tasks].find(([, s]) => s === status)?.[0]
+  if (p.advance === true) {
+    const doing = first('in_progress'), next = first('pending')
+    if (doing) tasks.set(doing, 'completed')
+    if (next) tasks.set(next, 'in_progress')
+  }
+  if (Array.isArray(p.done)) for (const n of p.done) if (tasks.has(String(n))) tasks.set(String(n), 'completed')
+  if (tasks.has(String(p.start))) tasks.set(String(p.start), 'in_progress')
+}
+// A conversation starts with no task, no sub-agent and no context fill to compare the next one with.
+function fresh(): void {
+  tasks.clear()
+  setTasks()
+  loops.clear()
+  S.subagents = 0
+  ctxTokens = undefined
 }
 
 // ---------- waves: one per PR of the branch, "[n/N]" in a PR title sets the count ----------
@@ -193,7 +246,7 @@ const tally = (names: string[]): string => [...new Set(names)].map(n => `${n} ${
 async function attempt<T>(ask: () => Promise<T>, or: T): Promise<T> {
   try { return await ask() } catch { return or }
 }
-async function report($: $T): Promise<string> {
+async function report($: $T, cmd?: { columns: number; isFullscreen: boolean }): Promise<string> {
   const t = now(), inMinute = (a: number[]) => a.filter(x => x >= t - 60_000).length
   const [version, surfaces, rows] = await Promise.all([
     attempt(async () => (await $.session.version()).version, 'inconnue'),
@@ -203,7 +256,7 @@ async function report($: $T): Promise<string> {
   const hasRow = (field: string) => rows.some(r => r.key === `${$.plugin.name}.${field}` || (r.key.startsWith(`${$.plugin.name}@`) && r.key.endsWith(`.${field}`)))
   const d = drawn.filter(x => x >= t - 60_000), sz = sizes.slice(sizes.length - d.length)
   const gaps = d.slice(1).map((x, i) => (x - (d[i] ?? x)) / 1000), mean = gaps.length ? gaps.reduce((a, b) => a + b, 0) / gaps.length : 0
-  const heaviest = sz.length ? Math.max(...sz) : 0, wanted = Math.min(60, Math.floor((t - since) / 1000))
+  const heaviest = sz.length ? Math.max(...sz) : 0, wanted = Math.floor(Math.min(60_000, t - since) / gap), secs = String(gap / 1000).replace('.', ',')
   const ents = W.ents as Ent[], fx = (W.fx as Fx[]).filter(x => x.until > t), fires = (W.fires as Fx[]).filter(x => x.until > t)
   const steps = Object.entries(S.steps).filter(([, done]) => done).map(([k]) => k).join(', ')
   // drawn as an image the SVG is strict XML; frozen, an animated element shows only its pose
@@ -214,10 +267,10 @@ async function report($: $T): Promise<string> {
   const unposed = [...lastScene.matchAll(/<[a-zA-Z]+\b[^>]*\bstyle="[^"]*animation:(?!var\()[^"]*"[^>]*>/g)].filter(m => !/transform="|transform:|opacity:/.test(m[0])).length
   const checks: [boolean, string][] = [
     [backdrop.isDrawn, "l'app dessine le décor"],
-    [d.length >= inMinute(asked) - 2, `l'app dessine les images demandées (${inMinute(asked)} demandées, ${d.length} dessinées)`],
-    [gaps.length < 20 || mean <= 1.3, gaps.length < 20 ? "rythme : trop peu d'images cette minute pour juger" : `rythme : une image toutes les ${fr(mean)} s en moyenne`],
+    [d.length >= askedIn(t).length - 2, `l'app dessine les images demandées (${askedIn(t).length} demandées, ${d.length} dessinées)`],
+    [gaps.length < 20 || mean <= gap / 1000 * 1.3, gaps.length < 20 ? "rythme : trop peu d'images cette minute pour juger" : `rythme : une image toutes les ${fr(mean)} s en moyenne, pour ${secs} s réglées`],
     [heaviest <= SVG_LIMIT && tooBig === 0, 'chaque image tient sous la limite de taille'],
-    [inMinute(ticks) >= wanted - 2, `l'horloge du mod bat chaque seconde (${inMinute(ticks)} tops sur ${wanted})`],
+    [inMinute(ticks) >= wanted - 2, `l'horloge du mod bat toutes les ${secs} s (${inMinute(ticks)} tops sur ${wanted})`],
     [lastScene !== '' && dup === 0, lastScene ? `XML strict${dup ? ` (${dup} balises avec un attribut en double)` : ''}` : 'aucune image à vérifier'],
     [lastScene !== '' && unposed === 0, `chaque élément animé porte sa pose, pour un décor figé${unposed ? ` (${unposed} sans pose)` : ''}`],
   ]
@@ -227,11 +280,12 @@ async function report($: $T): Promise<string> {
     `Décor : ${backdrop.isDrawn ? 'dessiné' : `pas dessiné (${backdrop.why})`}.`,
     `${rhythm(t)}${d.length ? ` Dernière il y a ${fr((t - (d[d.length - 1] ?? t)) / 1000)} s.` : ''}`,
     `Taille : dernière image ${chars(sz[sz.length - 1] ?? 0)} caractères, la plus lourde de la minute ${chars(heaviest)}, limite ${chars(SVG_LIMIT)}. Allégées (marcheurs sans pas) : ${W.lite}. Trop lourdes, remplacées : ${tooBig}.`,
-    `Horloge : ${inMinute(ticks)} tops dans la dernière minute, ${W.frame} pas depuis le début.`,
+    `Horloge : réglée sur ${secs} s (${gapFrom}), ${inMinute(ticks)} tops dans la dernière minute, ${W.frame} pas depuis le début.`,
     `Village : ${S.started ? 'réveillé' : 'endormi'}, activité ${S.activity}, modèle ${S.model}, effort ${S.effort}, contexte ${S.context} %${ctxTokens !== undefined ? ` (${chars(ctxTokens)} tokens)` : ''}, limite 5 h ${S.rate} %, coût ${fr(S.cost, 2)} $.`,
     `Tâches ${S.todoDone}/${S.todoTotal}, sous-agents ${S.subagents}. Branche ${branch || 'inconnue'} : wave ${S.waveCurrent}/${S.wavesTotal}, étapes ${steps || 'aucune'}.`,
     `Monde : ${ents.length} personnages (${tally(ents.map(e => e.kind))}), ${ents.filter(e => e.pts && e.t1 > t).length} en marche ; effets : ${tally(fx.map(x => x.kind)) || 'aucun'} ; incendies : ${fires.length}.`,
-    `Marges : gauche ${margin.left} px, droite ${margin.right} px${marginFrom ? `, venues ${marginFrom}` : ''}. Réglages margin_left et margin_right ${hasRow('margin_left') && hasRow('margin_right') ? "proposés par l'app" : 'absents (plugin chargé depuis un dossier ?)'}.`,
+    `Marges : gauche ${margin.left} px, droite ${margin.right} px${marginFrom ? `, venues ${marginFrom}` : ''} (entières à partir de 1 600 px de large, aucune sous 700 px). Réglages margin_left et margin_right ${hasRow('margin_left') && hasRow('margin_right') ? "proposés par l'app" : 'absents (plugin chargé depuis un dossier ?)'}.`,
+    `Taille reçue avec le décor, depuis : ${views.map(v => `il y a ${ago(t - v.at)}, ${v.view}`).join(' ; ') || 'aucune'}.${cmd ? ` Avec cette commande : ${cmd.columns} colonnes, isFullscreen ${cmd.isFullscreen}.` : ''}`,
     `Compaction : ${lastCompact ? `il y a ${Math.round((t - lastCompact) / 60_000)} min, vue par ${compactVia}` : 'aucune'}.`,
     `Événements reçus : ${[...seen].map(([k, n]) => `${k} ${n}`).join(', ') || 'aucun'}.`,
     `Dernier session.receive : ${received || 'aucun'}.`,
@@ -241,12 +295,17 @@ async function report($: $T): Promise<string> {
 }
 
 export const register: Register = (on, options) => {
-  margin.left = pixels(options.margin_left)
-  margin.right = pixels(options.margin_right)
-  if (margin.left || margin.right) marginFrom = 'des réglages du plugin'
+  // a setting left out keeps the default, 0 removes the margin
+  margin.left = options.margin_left == null ? DEFAULT_MARGIN.left : pixels(options.margin_left)
+  margin.right = options.margin_right == null ? DEFAULT_MARGIN.right : pixels(options.margin_right)
+  marginFrom = options.margin_left == null && options.margin_right == null ? 'des valeurs par défaut' : 'des réglages du plugin'
+  gap = beat(options.frame_interval) ?? DEFAULT_GAP
+  gapFrom = gap === DEFAULT_GAP ? 'par défaut' : 'réglages du plugin' // options come with the defaults filled in
+  Object.assign(asSet, { left: margin.left, right: margin.right, gap })
   on('session.start', async ($, e, next) => {
     saw('session.start')
     cwd = e.cwd
+    fresh()
     const [usage, model, turns] = await Promise.all([$.session.usage(), $.session.model(), $.session.turns()])
     S.model = modelKey(model)
     S.context = Math.round(usage.context.percent ?? 0)
@@ -256,23 +315,34 @@ export const register: Register = (on, options) => {
     S.activity = 'idle'
     // asleep until the first message; a resumed conversation is already awake
     S.started = turns > 0
-    const kept = (await $.store.get(MARGIN_STORE)) as { left?: unknown; right?: unknown } | undefined
-    if (kept) {
+    const kept = (await $.store.get(MARGIN_STORE)) as { left?: unknown; right?: unknown; over?: { left?: unknown; right?: unknown } } | undefined
+    const over = { ...DEFAULT_MARGIN, ...kept?.over }
+    if (kept && (over.left !== asSet.left || over.right !== asSet.right)) await $.store.delete(MARGIN_STORE)
+    else if (kept) {
       margin.left = pixels(kept.left)
       margin.right = pixels(kept.right)
       marginFrom = 'du stockage du mod'
+    }
+    // seconds alone as it was first kept, then with the setting it stood in for
+    const sync = (await $.store.get(SYNC_STORE)) as number | { s?: unknown; over?: unknown } | null | undefined
+    const keptSync: { s?: unknown; over?: unknown } = typeof sync === 'object' && sync ? sync : { s: sync }
+    const keptGap = beat(keptSync.s)
+    if (keptGap && (keptSync.over ?? DEFAULT_GAP) !== asSet.gap) await $.store.delete(SYNC_STORE)
+    else if (keptGap) {
+      gap = keptGap
+      gapFrom = 'stockage du mod'
     }
     await readBranch($)
     newWorld(now())
     await $.command.register({ name: 'village', description: 'Ouvre ou ferme la légende du village' })
     await $.command.register({ name: 'village-test', description: "Compte les images du décor dessinées pendant la dernière minute" })
     await $.command.register({ name: 'village-marges', description: 'Règle la marge gauche et la marge droite du village, en pixels' })
+    await $.command.register({ name: 'village-sync', description: 'Règle le temps entre deux images du décor, en secondes (1 par défaut)' })
     await $.command.register({ name: 'village-debug', description: 'Fait le point sur le décor, ses images, la session et les événements reçus' })
     const set = await $.theme.set({ backdrop: { scene: SCENE } })
     backdrop = set.isDrawn ? { isDrawn: true, why: '' } : { isDrawn: false, why: set.reason }
     if (!set.isDrawn) $.ui.log(`backdrop not drawn: ${set.reason}`, { to: 'debug' })
-    since = now()
-    $.clock.every(1000, () => tick($))
+    startClock($)
     draw($, true)
     return next(e)
   })
@@ -288,8 +358,14 @@ export const register: Register = (on, options) => {
 
   on('turn.start', ($, e, next) => {
     saw('turn.start')
-    if (e.agentId === undefined) act($, 'thinking')
-    else {
+    if (e.agentId === undefined) {
+      // a first message that is a command or a skill raises no plain prompt: the turn itself wakes the village
+      if (!S.started) {
+        wake(now())
+        draw($, true)
+      }
+      act($, 'thinking')
+    } else {
       loops.add(e.agentId)
       S.subagents = loops.size
       draw($)
@@ -352,23 +428,38 @@ export const register: Register = (on, options) => {
       else tasks.set(e.taskId, e.status)
       setTasks()
       draw($)
+    } else if (tool === PLAN_TOOL || tool === WRAP_TOOL) {
+      if (tool === PLAN_TOOL) planTasks(e as unknown as Plan)
+      else for (const id of tasks.keys()) tasks.set(id, 'completed')
+      setTasks()
+      draw($)
     } else if (e.tool === 'Bash') {
       const c = e.command
-      if (/\bgit\s+commit\b/.test(c)) {
-        S.steps = { ...S.steps, commit: true }
-        evCommit(now())
-        draw($, true)
-      }
-      if (/\bgit\s+push\b/.test(c)) {
-        S.steps = { ...S.steps, push: true }
-        evPush(now())
-        draw($, true)
-      }
+      // the branch first: what follows in the same command belongs to the one it lands on
       if (/\bgit\s+(checkout|switch)\b/.test(c)) {
         await readBranch($)
         draw($)
       }
-      await saveWaves($)
+      const before = S.steps
+      if (/\bgit\s+commit\b/.test(c)) {
+        S.steps = { ...S.steps, commit: true }
+        evCommit(now())
+      }
+      if (/\bgit\s+push\b/.test(c)) {
+        S.steps = { ...S.steps, push: true }
+        evPush(now())
+      }
+      // the gh CLI, as the GitHub tools below; an auto-merge only merges later
+      if (/\bgh\s+pr\s+create\b/.test(c)) {
+        waveFromTitle(/(?:--title|-t)[=\s]+(["'])(.*?)\1/.exec(c)?.[2])
+        S.steps = { ...S.steps, pr: true }
+      }
+      if (/\bgh\s+pr\s+merge\b/.test(c) && !/--auto\b/.test(c)) merged($)
+      // saved and drawn only when a step moved, not at every command
+      if (S.steps !== before) {
+        await saveWaves($)
+        draw($, true)
+      }
     } else if (/create_pull_request$/.test(tool)) {
       waveFromTitle((e as unknown as { title?: string }).title)
       S.steps = { ...S.steps, pr: true }
@@ -386,7 +477,7 @@ export const register: Register = (on, options) => {
     const { window } = e.context
     const tokens = e.context.tokens ?? (e.context.percent !== undefined ? (e.context.percent / 100) * window : undefined)
     if (tokens !== undefined) {
-      if (ctxTokens !== undefined && isCompactDrop(ctxTokens, tokens, window)) compacted($, 'la baisse du contexte')
+      if (ctxTokens !== undefined && isCompactDrop(ctxTokens, tokens)) compacted($, 'la baisse du contexte')
       ctxTokens = tokens
     }
     const five = e.rateLimits.find(r => r.kind === 'five_hour')
@@ -403,6 +494,18 @@ export const register: Register = (on, options) => {
     if (e.trigger !== 'precompute' && done.skip === undefined) compacted($, 'session.compact')
     return done
   }).catch(($, e, next) => next(e))
+
+  // /clear starts a new conversation in the same process, with no session.start: the tasks, the sub-agents
+  // and the context fill of the one that ends go with it
+  on('session.end', ($, e, next) => {
+    saw('session.end')
+    if (e.reason === 'clear') {
+      fresh()
+      S.context = 0
+      draw($)
+    }
+    return next(e)
+  })
 
   // GitHub events of a subscribed pull request: opened, merged, a failing check
   on('session.receive', ($, e, next) => {
@@ -429,10 +532,18 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Backdrop' }, ($, e, next) => {
     if (e.props.scene !== SCENE || e.surface !== 'desktop') return next(e)
     const { Svg } = $.ui.resolve(e)
+    const view = viewOf(e.viewport)
+    if (view !== views[views.length - 1]?.view) {
+      views.push({ at: now(), view })
+      views.splice(0, views.length - 10)
+    }
     // every pixel is a vector path: the desktop drops images embedded in a scene
     // the world as it stood when the frame was asked: frames a second apart show steps a second apart
-    const svg = withMargins(compose(lastDraw || now()))
+    const svg = compose(lastDraw || now(), margin)
     keep(drawn, now())
+    if (!firstDrawn) firstDrawn = now()
+    // drawn now, whatever theme.set answered before the desktop attached
+    backdrop = { isDrawn: true, why: '' }
     sizes.push(svg.length)
     sizes.splice(0, sizes.length - drawn.length)
     if (svg.length <= SVG_LIMIT) lastScene = svg
@@ -442,7 +553,7 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'village-test' }, async () => ({ text: rhythm(now()) }))
 
-  on('command.run', { command: 'village-debug' }, async $ => ({ text: await report($) }))
+  on('command.run', { command: 'village-debug' }, async ($, e) => ({ text: await report($, e.presentation) }))
 
   // /village-marges gauche 285, droite 410, or both at once: saved in the settings (or the store), drawn at once.
   on('command.run', { command: 'village-marges' }, async ($, e) => {
@@ -465,17 +576,34 @@ export const register: Register = (on, options) => {
       const v = want[side]
       if (v === undefined) continue
       margin[side] = v
-      if (!(await saveMargin($, side))) inSettings = false
+      if (!(await saveSetting($, MARGIN_KEY[side], v))) inSettings = false
     }
     if (words.length) {
       if (inSettings) await $.store.delete(MARGIN_STORE)
-      else await $.store.set(MARGIN_STORE, { ...margin })
+      else await $.store.set(MARGIN_STORE, { ...margin, over: { left: asSet.left, right: asSet.right } })
       marginFrom = margin.left || margin.right ? (inSettings ? 'des réglages du plugin' : 'du stockage du mod') : ''
     }
     draw($, true)
     const line = `Marges du village : gauche ${margin.left} px, droite ${margin.right} px.`
     if (!words.length) return { text: `${line} ${MARGIN_HELP}` }
     return { text: `${line} ${inSettings ? 'Enregistrées dans les réglages du plugin.' : 'Gardées pour les prochaines sessions.'}` }
+  })
+
+  // /village-sync 0,5: the time between two frames, in seconds, saved in the settings (or the store), at once.
+  on('command.run', { command: 'village-sync' }, async ($, e) => {
+    const arg = e.args.trim().replace(',', '.')
+    const line = () => `Une image toutes les ${String(gap / 1000).replace('.', ',')} s au plus.`
+    if (!arg) return { text: `${line()} ${SYNC_HELP}` }
+    const v = /^\d+(\.\d+)?$/.test(arg) ? beat(Number(arg)) : undefined
+    if (v === undefined) return { text: SYNC_HELP }
+    gap = v
+    const inSettings = await saveSetting($, 'frame_interval', gap / 1000)
+    if (inSettings) await $.store.delete(SYNC_STORE)
+    else await $.store.set(SYNC_STORE, { s: gap / 1000, over: asSet.gap })
+    gapFrom = inSettings ? 'réglages du plugin' : 'stockage du mod'
+    startClock($)
+    draw($, true)
+    return { text: `${line()} ${inSettings ? 'Enregistré dans les réglages du plugin.' : 'Gardé pour les prochaines sessions.'}` }
   })
 
   // ---------- /village: the legend pane ----------

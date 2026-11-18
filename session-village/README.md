@@ -9,7 +9,7 @@ Un village de jeu de rôle en pixel art, derrière la conversation de Claude Cod
 /plugin install session-village@denis-claude-mods
 ```
 
-Il faut Claude Code v2.1.323 ou plus récent. Le fond s'affiche dans l'app Desktop. Le terminal, VS Code et l'app mobile gardent leur fond habituel. Le village tient en entier dans la fenêtre, quelle que soit sa forme : au-delà de la carte, l'herbe continue, un peu assombrie.
+Il faut Claude Code v2.1.323 ou plus récent. Le fond s'affiche dans l'app Desktop. Le terminal, VS Code et l'app mobile gardent leur fond habituel. Le village occupe toute la hauteur de la fenêtre et suit son redimensionnement aussitôt. Quand la fenêtre est trop étroite pour l'afficher en entier, le pré de part et d'autre de la rivière rétrécit d'abord, les bâtiments restent entiers, puis les bords passent sous les marges. Au-delà de la carte, l'herbe continue, un peu assombrie. Sur une fenêtre basse, les panneaux grossissent pour rester lisibles.
 
 ## Ce que montre chaque lieu
 
@@ -31,19 +31,20 @@ Sur chaque lieu, un panneau indique ce qu'il suit : l'outil (Bash, Edit, Write�
 | Mine | Bash | Le four rougeoie, le wagonnet roule |
 | Atelier | Edit, Write | Copeaux et cheminée qui fume |
 | Bibliothèque | Read, Grep, Glob | Vitres bleues, pages qui tournent |
-| Poste | Web, outils MCP, message envoyé | Pigeons, drapeau de la boîte aux lettres |
-| Ferme | Tâches (TodoWrite, TaskCreate, TaskUpdate) | Une parcelle par tâche, mûre une fois faite |
+| Poste | Web, outils MCP (sauf ceux de l'app elle-même), message envoyé | Pigeons, drapeau de la boîte aux lettres |
+| Ferme | Tâches (TodoWrite, TaskCreate, TaskUpdate, liste de tâches de l'app Desktop) | Une parcelle par tâche, mûre une fois faite. Dix parcelles au plus : au-delà, elles gardent la proportion de tâches faites, et le panneau donne le vrai compte |
 | Guilde | Sous-agents | Une bannière par sous-agent, des aventuriers qui traversent la carte pour combattre dans le bois |
 
 Partout :
 
 - **Héros** : le modèle choisit le héros (mage, chevalier, rôdeur, barde) ; il va au lieu de l'outil en cours.
 - **Ciel** : la limite 5 h fait passer le jour, du matin à la nuit, puis la pluie au-delà de 90 %.
-- **Avant le premier message** : le village dort, le héros près d'un feu de camp, une quête attend sur le panneau. Le premier message fait lever le soleil.
+- **Avant le premier message** : le village dort, le héros près d'un feu de camp, une quête attend sur le panneau. Le premier message fait lever le soleil, tout comme un premier tour lancé par une commande ou un skill.
+- **Après `/clear`** : les tâches, les sous-agents et le contexte repartent de zéro.
 - **Événements** : une erreur d'outil met le feu au bâtiment concerné, une compaction chasse les monstres, un commit fait briller le château, un push envoie une charrette de la poste au château, un merge lance une fête et des feux d'artifice.
 - **Au hasard** : un marchand, un barde, un pêcheur, un fantôme, une étoile filante, des oiseaux, l'ombre d'un nuage ou d'un dragon, toutes les 40 à 100 secondes.
 
-Les waves suivent la branche git courante. Un titre de PR contenant `[2/4]` fixe la wave en cours et le nombre total. Un merge, par l'outil GitHub ou par un événement de PR suivi, passe à la wave suivante.
+Les waves suivent la branche git courante. Un titre de PR contenant `[2/4]` fixe la wave en cours et le nombre total. Une PR ouverte se lit dans l'outil GitHub, dans `gh pr create` ou dans un événement de PR suivi. Un merge, par l'outil GitHub, par `gh pr merge` (sans `--auto`) ou par un événement de PR suivi, passe à la wave suivante.
 
 ## Commandes
 
@@ -51,25 +52,27 @@ Les waves suivent la branche git courante. Un titre de PR contenant `[2/4]` fixe
 |---|---|
 | `/village` | Ouvre ou ferme la légende : chaque lieu, sa valeur en direct et ce qu'il faut regarder. Le lieu actif est mis en avant. |
 | `/village-marges` | Règle la place laissée à gauche et à droite du village (voir plus bas). |
+| `/village-sync` | Règle le temps entre deux images du décor, en secondes : `/village-sync 0,5`, `/village-sync 2`, `/village-sync 1` pour revenir au défaut. Entre 0,25 et 10 s. Va dans le réglage `frame_interval`, ou reste gardé par le mod comme les marges. |
 | `/village-test` | Indique combien d'images du fond l'app a dessinées pendant la dernière minute, et à quel rythme. |
-| `/village-debug` | Fait le point en texte : version de Claude Code, décor dessiné ou non, images (nombre, rythme, taille), horloge, état de la session, personnages et effets, marges, événements reçus (dont le dernier événement GitHub tel qu'il arrive), puis une série de vérifications sur la dernière image. |
+| `/village-debug` | Fait le point en texte : version de Claude Code, décor dessiné ou non, images (nombre, rythme, taille), horloge, état de la session, personnages et effets, marges, taille que l'app donne au décor (en caractères) et ses changements, événements reçus (dont le dernier événement GitHub tel qu'il arrive), puis une série de vérifications sur la dernière image. |
 
 ## Marges
 
-Le fond couvre toute la fenêtre, y compris sous la barre latérale et les panneaux. Pour que le village tienne dans la partie visible, règle une marge à gauche et une à droite, en pixels, chacune séparément :
+Le fond couvre toute la fenêtre, y compris sous la barre latérale et les panneaux. Pour que le village tienne dans la partie visible, il laisse par défaut 300 px à gauche et 300 px à droite. Une marge est entière à partir de 1 600 px de large, diminue en dessous et disparaît sous 700 px. Tu peux régler chaque marge séparément, en pixels :
 
 ```
 /village-marges gauche 285
 /village-marges droite 410
 ```
 
-`/village-marges 285 410` règle les deux d'un coup, `0` retire une marge, et la commande seule affiche les valeurs en cours. Le village se redessine aussitôt, et l'herbe assombrie continue sous les marges. Les valeurs vont dans les réglages du plugin (`margin_left` et `margin_right`, dans `pluginConfigs` de `settings.json`). Quand l'app ne propose pas ces réglages, par exemple pour un plugin chargé depuis un dossier local, le mod les garde lui-même pour les sessions suivantes.
+`/village-marges 285 410` règle les deux d'un coup, `0` retire une marge, et la commande seule affiche les valeurs en cours. Le village se redessine aussitôt, et l'herbe assombrie continue sous les marges. Les valeurs vont dans les réglages du plugin (`margin_left` et `margin_right`, dans `pluginConfigs` de `settings.json`). Quand l'app ne propose pas ces réglages, par exemple pour un plugin chargé depuis un dossier local, le mod les garde lui-même pour les sessions suivantes. Si le réglage change ensuite dans l'app, c'est lui qui compte.
 
 ## Comment le fond est dessiné
 
 - **En tracés vectoriels** : l'app Desktop n'affiche pas les images intégrées à une scène. Chaque suite de pixels d'une même couleur sur une ligne est donc un trait. L'herbe est un motif répété, les cases du décor présentes plusieurs fois sont dessinées une seule fois, et un personnage n'envoie que ce qu'il montre (debout, la marche, l'attaque).
 - **Image par image** : les animations sont en CSS, par paliers. Quand l'app fige le fond (réglage « Réduire les animations », rendu sans accélération matérielle), elle retire toutes les animations. Chaque élément animé porte donc aussi sa position du moment, et la scène reste juste image par image. Une boucle plus rapide que la seconde (pas de marche, clignements, flammes) avance alors d'un cran par image au lieu de sauter au hasard, et un effet court (fumée, pièces, sort) reste au moins 3 secondes pour se voir sur plusieurs images.
-- **Une seconde** : le monde avance chaque seconde. Une image part quand quelque chose a changé, ou tant que quelqu'un marche ou qu'un effet joue. Elle montre le monde à l'heure où elle a été demandée, pas à celle où l'app la dessine : les pas restent réguliers même quand l'app dessine avec un peu de retard. Les villageois marchent à mi-vitesse, pour avancer de moins d'une case d'une image à l'autre. En simulation sur dix minutes : aucune image avant le premier message, environ 60 par minute ensuite. Mesuré dans l'app avec `/village-test` : 60 images dessinées en une minute, une par seconde.
+- **Une seconde** : le monde avance chaque seconde (réglable avec `/village-sync`, pour essayer une autre machine). Une image part quand quelque chose a changé, ou tant que quelqu'un marche ou qu'un effet joue. Elle montre le monde à l'heure où elle a été demandée, pas à celle où l'app la dessine : les pas restent réguliers même quand l'app dessine avec un peu de retard. Les villageois marchent à mi-vitesse, pour avancer de moins d'une case d'une image à l'autre. En simulation sur dix minutes : aucune image avant le premier message, environ 60 par minute ensuite. Mesuré dans l'app avec `/village-test` : 60 images dessinées en une minute, une par seconde.
+- **Mise en page** : l'app ne donne pas la taille de la fenêtre en pixels. Le décor se place donc en CSS, avec les unités `vw` et `vh` : le monde est dessiné trois fois à la hauteur de la fenêtre, et chaque copie est découpée (partie gauche, rivière, partie droite). Il suit la fenêtre sans attendre une nouvelle image.
 - **Taille** : une image fait environ 80 000 caractères au repos et jusqu'à 120 000 en plein travail, sous la limite de 131 072. Au-delà de 120 000, les personnages en marche glissent sur leur image debout.
 
 ## Développer le mod
