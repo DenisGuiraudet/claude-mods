@@ -10,7 +10,7 @@
       "type": "number",
       "title": "Left margin (px)",
       "description": "Room left free on the left of the village, such as the width of the sidebar. 0: no margin.",
-      "default": 300,
+      "default": 420,
       "min": 0,
       "max": 2000
     },
@@ -18,7 +18,7 @@
       "type": "number",
       "title": "Right margin (px)",
       "description": "Room left free on the right of the village, such as the width of an open panel. 0: no margin.",
-      "default": 300,
+      "default": 320,
       "min": 0,
       "max": 2000
     },

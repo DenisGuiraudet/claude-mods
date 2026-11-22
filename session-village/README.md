@@ -4,12 +4,28 @@ Un village de jeu de rôle en pixel art, derrière la conversation de Claude Cod
 
 ## Installation
 
+Dans Claude Code :
+
 ```
 /plugin marketplace add DenisGuiraudet/claude-mods
 /plugin install session-village@denis-claude-mods
 ```
 
-Il faut Claude Code v2.1.323 ou plus récent. Le fond s'affiche dans l'app Desktop. Le terminal, VS Code et l'app mobile gardent leur fond habituel. Le village se place de part et d'autre de la colonne de conversation, pour que ses bâtiments restent visibles, et suit le redimensionnement de la fenêtre aussitôt. Quand la place manque à côté de la colonne, il se réduit, centré en hauteur, jusqu'à 60 % de la hauteur de la fenêtre. Quand même cela ne suffit pas, il reprend toute la hauteur : le pré de part et d'autre de la rivière rétrécit d'abord, les bâtiments restent entiers, puis les bords passent sous les marges. Au-delà de la carte, l'herbe continue, un peu assombrie. Sur une fenêtre basse, les panneaux grossissent pour rester lisibles.
+Ou depuis un terminal :
+
+```
+claude plugin marketplace add DenisGuiraudet/claude-mods
+claude plugin install session-village@denis-claude-mods
+```
+
+Le dépôt sert lui-même de marketplace (`denis-claude-mods`, dans `.claude-plugin/marketplace.json`) : le mod s'installe depuis sa branche par défaut, `main`. Pour passer à la dernière version, puis redémarrer l'app :
+
+```
+claude plugin marketplace update denis-claude-mods
+claude plugin update session-village@denis-claude-mods
+```
+
+Il faut Claude Code v2.1.323 ou plus récent. Le fond s'affiche dans l'app Desktop. Le terminal, VS Code et l'app mobile gardent leur fond habituel. Le village se place de part et d'autre de la colonne de conversation, pour que ses bâtiments restent visibles, et suit le redimensionnement de la fenêtre aussitôt. Quand la place manque à côté de la colonne, il se réduit, centré en hauteur, jusqu'à 50 % de la hauteur de la fenêtre. Quand même cela ne suffit pas, il reprend toute la hauteur : le pré de part et d'autre de la rivière rétrécit d'abord, les bâtiments restent entiers, puis les bords passent sous les marges. Au-delà de la carte, l'herbe continue, un peu assombrie. Sur une fenêtre basse, les panneaux grossissent pour rester lisibles.
 
 ## Ce que montre chaque lieu
 
@@ -58,7 +74,7 @@ Les waves suivent la branche git courante. Un titre de PR contenant `[2/4]` fixe
 
 ## Marges
 
-Le fond couvre toute la fenêtre, y compris sous la barre latérale et les panneaux. Pour que le village tienne dans la partie visible, il laisse par défaut 300 px à gauche et 300 px à droite. Une marge est entière à partir de 1 600 px de large, diminue en dessous et disparaît sous 700 px. Tu peux régler chaque marge séparément, en pixels :
+Le fond couvre toute la fenêtre, y compris sous la barre latérale et les panneaux. Pour que le village tienne dans la partie visible, il laisse par défaut 420 px à gauche et 320 px à droite, à peu près la barre latérale de l'app et un panneau ouvert. Une marge est entière à partir de 1 600 px de large, diminue en dessous et disparaît sous 700 px. Tu peux régler chaque marge séparément, en pixels :
 
 ```
 /village-margins left 285
@@ -109,6 +125,20 @@ claude plugin validate session-village
 ```
 
 Les tests tournent sans session ni réseau. Le code tient en trois fichiers : `hooks/register.tsx` (événements, commandes, réglages), `hooks/world.js` (le monde et son dessin) et `hooks/data/vector.js` (le décor, les tuiles et les personnages en tracés).
+
+### Revenir à la version du marketplace
+
+Retire `CLAUDE_CODE_PLUGIN_DIRS` et `CLAUDE_CODE_PLUGIN_DIR_WATCH` de `~/.claude/settings.json`, sinon le mod se charge aussi depuis le clone. Installe ensuite le plugin comme plus haut, ou réactive-le s'il est déjà installé :
+
+```
+claude plugin enable session-village@denis-claude-mods
+```
+
+Chargé depuis le clone, le mod s'appelle `session-village@inline` : ses réglages sont rangés sous ce nom dans `pluginConfigs`, et ses données dans `~/.claude/plugins/store/session-village_inline-….json`. La version du marketplace, `session-village@denis-claude-mods`, ne les reprend pas. Refais `/village-margins` et `/village-sync` si tu les avais changés, ou passe les réglages à l'installation :
+
+```
+claude plugin install session-village@denis-claude-mods --config frame_interval=0.1
+```
 
 ## Crédits
 

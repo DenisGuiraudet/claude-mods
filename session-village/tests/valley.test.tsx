@@ -73,7 +73,7 @@ test('the scene draws on desktop, under the size limit, asleep before the first 
   // the quest marker over the board only shows before the session starts
   expect(svg.includes('kalert')).toBe(true)
   // by default, room for the sidebar on the left and an open pane on the right
-  expect(svg.includes(room(300, 300))).toBe(true)
+  expect(svg.includes(room(420, 320))).toBe(true)
   // drawn in a sandboxed frame, not as an image
   const ui = await $.ui.mount({ ...BACKDROP, surface: 'desktop' })
   expect(((await ui.find({ type: 'Svg' }))?.props as { isInteractive?: boolean } | undefined)?.isInteractive).toBe(true)
@@ -272,10 +272,10 @@ test('/village-margins sets each margin on its own, saves it and draws it', asyn
   engine(on)
   marginRows(on)
   await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
-  expect((await svgOf($)).includes(room(300, 300))).toBe(true)
+  expect((await svgOf($)).includes(room(420, 320))).toBe(true)
   const run = (args: string) => $.command.run({ command: 'village-margins', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
   await run('left 120')
-  expect((await svgOf($)).includes(room(120, 300))).toBe(true)
+  expect((await svgOf($)).includes(room(120, 320))).toBe(true)
   await run('right 40')
   expect((await svgOf($)).includes(room(120, 40))).toBe(true)
   expect(saved.get('session-village.margin_left')).toBe(120)
@@ -312,7 +312,7 @@ test('the buildings keep out of the conversation column, 768 px by default, set 
   // the world shrinks where CSS can divide a length by a length
   expect(svg.includes('@supports (scale:calc(2px / 1px))')).toBe(true)
   const done = await $.command.run({ command: 'village-margins', args: 'column 960', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
-  expect(String((done as { text?: string } | undefined)?.text)).toBe('Village margins: left 300 px, right 300 px, conversation column 960 px. Saved in the plugin settings.')
+  expect(String((done as { text?: string } | undefined)?.text)).toBe('Village margins: left 420 px, right 320 px, conversation column 960 px. Saved in the plugin settings.')
   expect(saved.get('session-village.column_width')).toBe(960)
   expect((await svgOf($)).includes('--g0:calc(min(992px,')).toBe(true)
 })
@@ -329,7 +329,7 @@ test('two clicks on the village set the margins as shares of the window, until m
   // clicks too close leave no room for the village; in either order
   expect(clickShares(0.5, 0.6)).toBe(null)
   expect(clickShares(0.875, 0.15625)).toEqual({ left: 0.1563, right: 0.125 })
-  const kept = new Map<string, unknown>([['margin-shares', { left: 0.1563, right: 0.125, over: { left: 300, right: 300 } }]])
+  const kept = new Map<string, unknown>([['margin-shares', { left: 0.1563, right: 0.125, over: { left: 420, right: 320 } }]])
   engine(on, 0, true, kept)
   await $.session.start(START)
   expect((await svgOf($)).includes('--ml:calc(100vw * 0.1563);--mr:calc(100vw * 0.125);')).toBe(true)
@@ -337,7 +337,7 @@ test('two clicks on the village set the margins as shares of the window, until m
   expect(String(((await run('click')) as { text?: string } | undefined)?.text)).toContain('just right of the sidebar')
   expect(await debugOf($)).toContain('Waiting for two clicks.')
   await run('left 250')
-  expect((await svgOf($)).includes(room(250, 300))).toBe(true)
+  expect((await svgOf($)).includes(room(250, 320))).toBe(true)
   expect(kept.has('margin-shares')).toBe(false)
 })
 

@@ -87,7 +87,7 @@ const tasks = new Map<string, string>()
 // Room left on each side of the village, in CSS pixels, in full from a 1600 px wide window and less below
 // (world.js lays the scene out in CSS).
 // By default, room for the sidebar on the left and an open pane on the right (as in plugin.json).
-const DEFAULT_MARGIN = { left: 300, right: 300 } as const
+const DEFAULT_MARGIN = { left: 420, right: 320 } as const
 const margin: Record<'left' | 'right', number> = { ...DEFAULT_MARGIN }
 const MARGIN_KEY = { left: 'margin_left', right: 'margin_right' } as const
 const pixels = (v: unknown): number => (typeof v === 'number' && v > 0 ? Math.min(2000, Math.round(v)) : 0)

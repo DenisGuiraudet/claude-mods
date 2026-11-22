@@ -101,7 +101,7 @@ const GROUND_PARTS=(()=>{
 // window's height and the meadow goes first, as without a column. Shrinking takes CSS dividing a length by a
 // length, which @supports checks: where it cannot, the world keeps the window's height. With no column (0), the
 // river alone parts the village.
-const COL_PAD=16,MIN_H=60;
+const COL_PAD=16,MIN_H=50;
 function layoutCss({left=0,right=0,column=0,fracLeft,fracRight}={}){
   const m=(v,fr)=>fr!=null?`calc(100vw * ${+fr.toFixed(4)})`:v>0?`clamp(0px,calc((100vw - 700px) / 900 * ${v}),${v}px)`:'0px';
   const C=CUT,river=C.r-C.l,u=n=>`var(--H) * ${n/1000}`;
