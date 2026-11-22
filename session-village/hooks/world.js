@@ -42,25 +42,56 @@ function pose(name,p,ease=''){const o=stopsOf(name);if(!o)return '';const x=clam
   let s='';for(const q in o){const L=o[q];let j=0;while(j<L.length-2&&L[j+1][0]<=x)j++;const a=L[j],b=L[j+1];
     s+=`${q}:${!b||x>=100?L[L.length-1][1]:b[0]<=a[0]?b[1]:lerpCss(a[1],b[1],ez(clamp((x-a[0])/(b[0]-a[0])),ease))};`}
   return s}
-// Frozen, the desktop shows a frame a second (W.frame counts them). A loop's still pose goes one step a frame,
-// a smooth loop four frames a cycle: a faster loop sampled once a second would jump back and forth at random.
+// Frozen, the desktop shows a frame a beat (W.frame counts them, W.beat seconds apart). A loop's still pose goes
+// one step a frame, a smooth loop four frames a cycle: a faster loop sampled once a beat would jump back and
+// forth at random. With frames close enough to show each step in time, the loop keeps its own pace.
 function still(name,dur,ease,phase=0){const o=stopsOf(name);if(!o)return '';
   const seg=Math.max(1,...Object.values(o).map(L=>L.filter((x,i)=>i&&x[0]-L[i-1][0]>1).length)),st=/steps\((\d+)/.exec(ease);
-  const n=Math.max(dur,st?st[1]*seg:ease==='step-end'?seg:4);
+  const n=Math.max(dur/W.beat,st?st[1]*seg:ease==='step-end'?seg:4);
   return pose(name,((W.frame+.5+phase/1000/dur*n)%n)/n,ease)}
 const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
 const dist=(a,b)=>Math.hypot(b[0]-a[0],b[1]-a[1]);
 // The scene fits the window whole (meet). Past its 1600x1000 the grass goes on, shaded (FRAME), and the
 // layers over the whole scene (night, dawn, flash, rain) cover that margin too (BLEED).
 const BLEED='x="-1600" y="-1000" width="4800" height="3000"';
-const MARGIN='<g transform="scale(3)"><rect x="-544" y="-336" width="1632" height="1008" fill="url(#vg)"/></g>';
 const FRAME='<path d="M-1600 -1000h4800v3000h-4800zM0 0v1000h1600v-1000z" fill="#14210f" fill-rule="evenodd" opacity=".35"/>';
 // Only CSS knows the window's size (vw, vh). The world (#kw) is drawn three times at the window's height,
 // each copy clipped: the left part up to x 690, the river (690-940), the right part from 940. When the window
 // is too narrow for the whole village, the meadow on each side of the river goes first (the buildings stay,
-// 0-440 and 1195-1600), then the edges pass under the margins. A margin grows with the window: none under
-// 700 px wide, all of it from 1600 px. On a short window the signs grow to stay readable.
-const CUT={l:690,r:940,keepL:440,keepR:1195},vh=n=>`${f(n/10)}vh`;
+// 0-432 and 1200-1600), then the edges pass under the margins. A margin grows with the window: none under
+// 700 px wide, all of it from 1600 px. On a short window the signs grow to stay readable. The buildings stay
+// up to a line between two columns of tiles, which nothing on the ground crosses: a line inside a column
+// left slivers of a tree, a bush or the road at the edge of a part.
+const CUT={l:690,r:940,keepL:432,keepR:1200},vh=n=>`${f(n/10)}vh`;
+// The static ground cut in three at the cuts, once: each clipped copy draws its own part, not the whole map, which
+// the app would otherwise paint three times over. In ground units (a third of the world's); a run of pixels or a
+// tile across a cut goes in both parts. Each part keeps the whole grass underneath: cut to the part, the grass
+// left the art blurred in Chromium at scales below one.
+const GROUND_PARTS=(()=>{
+  const cl=CUT.l/3,cr=CUT.r/3,span={l:[-1e9,cl],c:[cl,cr],r:[cr,1e9]},keys=['l','c','r'];
+  const hit=(a,b)=>keys.filter(k=>a<span[k][1]&&b>span[k][0]);
+  const runs={l:{},c:{},r:{}},rows={l:'',c:'',r:''};
+  const body=GROUND.slice(GROUND.indexOf('<g transform="translate(0 .5)">'));
+  for(const[,cls,d]of body.matchAll(/<path class="(\w+)" d="([^"]*)"\/>/g)){
+    let x=0,y=0;
+    for(const[,c,a,b]of d.matchAll(/([Mmh])(-?[\d.]+)(?:[ ,](-?[\d.]+))?/g)){
+      if(c==='M'){x=+a;y=+b}else if(c==='m'){x+=+a;y+=+b}
+      else{const n=+a;for(const k of hit(x,x+n))(runs[k][cls]=runs[k][cls]||[]).push([x,y,n]);x+=n}
+    }
+  }
+  // the first row's tiles sit loose in the group, the others each in a row of their own
+  const tiles=(uses,wrap)=>{
+    const by={l:'',c:'',r:''};
+    for(const[u,x]of uses.matchAll(/<use href="#\w+"(?: x="(-?[\d.]+)")?\/>/g))for(const k of hit(+(x||0),+(x||0)+16))by[k]+=u;
+    for(const k of keys)if(by[k])rows[k]+=wrap(by[k]);
+  };
+  const ROW=/<g transform="translate\(0 (\d+)\)">(.*?)<\/g>/g;
+  tiles(body.replace(ROW,'').replace(/<path [^>]*\/>/g,''),u=>u);
+  for(const[,y,uses]of body.matchAll(ROW))tiles(uses,u=>`<g transform="translate(0 ${y})">${u}</g>`);
+  const path=list=>{let o='',cx=null,cy=0;for(const[x,y,n]of list){o+=cx===null?`M${x} ${y}h${n}`:`m${x-cx} ${y-cy}h${n}`;cx=x+n;cy=y}return o};
+  return keys.map(k=>`<g id="kg${k}" transform="scale(3)"><rect x="-544" y="-336" width="1632" height="1008" fill="url(#vg)"/>`
+    +`<g transform="translate(0 .5)">${Object.entries(runs[k]).map(([cls,l])=>`<path class="${cls}" d="${path(l)}"/>`).join('')}${rows[k]}</g></g>`).join('');
+})();
 function layoutCss({left=0,right=0}={}){
   const m=v=>v>0?`clamp(0px,calc((100vw - 700px) / 900 * ${v}),${v}px)`:'0px',C=CUT,river=C.r-C.l;
   return `.kv{--ml:${m(left)};--mr:${m(right)};--xc:calc((var(--ml) + 100vw - var(--mr)) / 2 - ${vh(river/2)});`
@@ -70,9 +101,9 @@ function layoutCss({left=0,right=0}={}){
     +`.kvl{width:calc(var(--xc) + 1px)}.kvc{transform:translate(var(--xc),0);width:calc(${vh(river)} + 1px)}.kvr{transform:translate(calc(var(--xc) + ${vh(river)}),0);width:100vw}`
     +`.ksg{transform:scale(var(--sg,1))}@media (max-height:900px){.kv{--sg:1.12}}@media (max-height:780px){.kv{--sg:1.28}}@media (max-height:660px){.kv{--sg:1.5}}`}
 // The world at the window's height (meet in a box ten windows wide), and the three clipped copies.
-const LAYOUT_DEFS='<svg id="kws" width="1000%" height="100%" viewBox="0 0 1600 1000" preserveAspectRatio="xMinYMid meet" overflow="visible"><use href="#kw"/></svg>'
+const LAYOUT_DEFS=GROUND_PARTS+['l','c','r'].map(k=>`<svg id="kws${k}" width="1000%" height="100%" viewBox="0 0 1600 1000" preserveAspectRatio="xMinYMid meet" overflow="visible"><use href="#kg${k}"/><use href="#kw"/></svg>`).join('')
   +['l','c','r'].map(k=>`<clipPath id="kv${k}"><rect class="kv${k}" height="100%"/></clipPath>`).join('');
-const LAYOUT=['l','c','r'].map(k=>`<g clip-path="url(#kv${k})"><g class="km${k}"><use href="#kws"/></g></g>`).join('');
+const LAYOUT=['l','c','r'].map(k=>`<g clip-path="url(#kv${k})"><g class="km${k}"><use href="#kws${k}"/></g></g>`).join('');
 const pick=(a,r=Math.random)=>a[Math.floor(r()*a.length)];
 const INK='#2a2230';
 const K='class="o"'; // outline: see .o in CSS
@@ -80,9 +111,9 @@ const K='class="o"'; // outline: see .o in CSS
 // ---------- session ----------
 const MODELS={
   opus:{name:'Opus 5.5',cls:'Mage',a:'#8f62f5',b:'#ff7ac8'},
-  sonnet:{name:'Sonnet 5.5',cls:'Chevalier',a:'#1fae97',b:'#52b6ff'},
-  haiku:{name:'Haiku 5.5',cls:'Éclaireur',a:'#4fae3a',b:'#d9e85a'},
-  fable:{name:'Fable 5.2',cls:'Barde',a:'#e8951a',b:'#ff7a52'},
+  sonnet:{name:'Sonnet 5.5',cls:'Knight',a:'#1fae97',b:'#52b6ff'},
+  haiku:{name:'Haiku 5.5',cls:'Scout',a:'#4fae3a',b:'#d9e85a'},
+  fable:{name:'Fable 5.2',cls:'Bard',a:'#e8951a',b:'#ff7a52'},
 };
 const CLASS={opus:'mage',sonnet:'knight',haiku:'scout',fable:'bard'};
 const EFFORT={low:.15,medium:.35,high:.6,xhigh:.82,max:1};
@@ -94,15 +125,15 @@ function progress(){const st=S.steps,t=S.todoTotal?Math.min(1,S.todoDone/S.todoT
 
 // One place per signal. Each view gives its own name, building and in-world sign.
 const SIG={
-  think:{col:null,what:'Réflexion, effort'},
+  think:{col:null,what:'Thinking, effort'},
   bash:{col:'#e0533f',what:'Bash'},
   edit:{col:'#e9a83a',what:'Edit, Write'},
   read:{col:'#4b93e0',what:'Read, Grep'},
   web:{col:'#2bb3a3',what:'Web, messages'},
-  agents:{col:'#ee7d3c',what:'Sous-agents'},
-  context:{col:'#8b63e0',what:'Contexte'},
-  cost:{col:'#e2b63a',what:'Coût'},
-  todo:{col:'#6dbb4c',what:'Tâches'},
+  agents:{col:'#ee7d3c',what:'Sub-agents'},
+  context:{col:'#8b63e0',what:'Context'},
+  cost:{col:'#e2b63a',what:'Cost'},
+  todo:{col:'#6dbb4c',what:'Tasks'},
   waves:{col:'#9aa3c7',what:'Waves, PR, merge'},
 };
 const ACT_SIG={thinking:'think',bash:'bash',edit:'edit',read:'read',web:'web'};
@@ -117,16 +148,16 @@ function sigActive(id,now){switch(id){
   case 'todo':return now<W.todoPulse;
   case 'waves':return (S.steps.pr&&!S.steps.merged)||now<W.festUntil;}return false}
 function sigValue(id){switch(id){
-  case 'think':return S.activity==='thinking'?`Réflexion ${S.effort}`:`Effort ${S.effort}`;
+  case 'think':return S.activity==='thinking'?`Thinking ${S.effort}`:`Effort ${S.effort}`;
   case 'bash':return 'Bash';case 'edit':return 'Edit';case 'read':return 'Read';case 'web':return 'Web';
-  case 'agents':return `${S.subagents} sous-agent${S.subagents>1?'s':''}`;
-  case 'context':return `${S.context} %`;
+  case 'agents':return `${S.subagents} sub-agent${S.subagents===1?'':'s'}`;
+  case 'context':return `${S.context}%`;
   case 'cost':return `$${S.cost.toFixed(2)}`;
   case 'todo':return `${S.todoDone}/${S.todoTotal}`;
-  case 'waves':{const st=S.steps;return `Wave ${Math.min(S.waveCurrent,S.wavesTotal)}/${S.wavesTotal}`+(st.merged?' mergée':st.pr?' PR':st.push?' push':st.commit?' commit':'')}}return ''}
+  case 'waves':{const st=S.steps;return `Wave ${Math.min(S.waveCurrent,S.wavesTotal)}/${S.wavesTotal}`+(st.merged?' merged':st.pr?' PR':st.push?' push':st.commit?' commit':'')}}return ''}
 
 // A sign tells what its place shows: the tool, or the measure and its value.
-const SIGN={context:'Contexte',cost:'Coût',todo:'Tâches'};
+const SIGN={context:'Context',cost:'Cost',todo:'Tasks'};
 const signText=id=>SIGN[id]?`${SIGN[id]} · ${sigValue(id)}`:/^(bash|edit|read|web)$/.test(id)?SIG[id].what:sigValue(id);
 
 function derive(now){
@@ -139,7 +170,7 @@ function derive(now){
 }
 
 // ---------- world ----------
-const W={seed:(Math.random()*1e9)|0,frame:0,lite:0,ambNext:0,ents:[],fx:[],fires:[],nid:1,dirty:true,letterUntil:0,wakeUntil:0,costPulse:0,todoPulse:0,festUntil:0,nextSpawn:0,nextAdv:0,navKey:null,lastCost:S.cost,lastTodo:S.todoDone};
+const W={seed:(Math.random()*1e9)|0,frame:0,beat:1,lite:0,ambNext:0,ents:[],fx:[],fires:[],nid:1,dirty:true,letterUntil:0,wakeUntil:0,costPulse:0,todoPulse:0,festUntil:0,nextSpawn:0,nextAdv:0,navKey:null,lastCost:S.cost,lastTodo:S.todoDone};
 let VIEW='valley',LABELS=true,NAV={nodes:{},adj:{}};
 
 function navFor(V){
@@ -262,9 +293,10 @@ function ensure(now,D,V){
   const og=live('enemy',e=>e.type==='ogre');
   if(D.boss&&!D.pre&&!og.length)addEnt('enemy',pick(V.spawn),{type:'ogre',skin:'ogre',scale:2,speed:24});
   if((!D.boss||D.pre)&&og.length)leave(og[0],now);
-  const ad=live('adv');
-  if(ad.length<(D.pre?0:S.subagents)&&now>=W.nextAdv){addEnt('adv',V.places.agents.node,{skin:'adv',speed:115});W.nextAdv=now+700}
-  else if(ad.length>(D.pre?0:S.subagents))leave(ad[ad.length-1],now);
+  // four adventurers at most, as the guild's banners: its sign tells how many sub-agents run
+  const ad=live('adv'),advs=D.pre?0:Math.min(4,S.subagents);
+  if(ad.length<advs&&now>=W.nextAdv){addEnt('adv',V.places.agents.node,{skin:'adv',speed:115});W.nextAdv=now+700}
+  else if(ad.length>advs)leave(ad[ad.length-1],now);
 }
 function step(now){
   W.frame++;
@@ -518,17 +550,17 @@ const CSS=`
 @keyframes kpulse{0%,100%{opacity:.35}50%{opacity:1}}
 @keyframes kring{0%{transform:scale(.5);opacity:.9}100%{transform:scale(1.8);opacity:0}}
 @keyframes krainp{0%{transform:translate(0,0)}100%{transform:translate(-20px,120px)}}
-@keyframes kspin{to{transform:rotate(360deg)}}
+@keyframes kspin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 @keyframes ksway{0%,100%{transform:rotate(-2deg)}50%{transform:rotate(2deg)}}
 @keyframes kdrift{0%{transform:translateX(-300px)}100%{transform:translateX(1900px)}}
 @keyframes kbobw{0%,100%{transform:translateY(0)}50%{transform:translateY(3px)}}
 @keyframes kconf{0%{transform:translate(0,0) rotate(0);opacity:1}100%{transform:translate(var(--dx,20px),220px) rotate(540deg);opacity:0}}
 @keyframes kfly{0%{transform:translate(0,0)}100%{transform:translate(-2000px,-160px)}}
 @keyframes kstar{0%{transform:translate(0,0);opacity:0}15%{opacity:1}100%{transform:translate(420px,160px);opacity:0}}
-@keyframes kflyo{to{transform:translate(-2000px,-160px)}}
+@keyframes kflyo{from{transform:translate(0px,0px)}to{transform:translate(-2000px,-160px)}}
 @keyframes kcloud{from{transform:translate(-300px,0)}to{transform:translate(1800px,0)}}
 @keyframes kdrag{from{transform:translate(-200px,0)}to{transform:translate(1900px,-260px)}}
-@keyframes kw4{to{transform:translateY(-64px)}}
+@keyframes kw4{from{transform:translateY(0px)}to{transform:translateY(-64px)}}
 @keyframes katk{0%,49.9%{transform:translateY(0)}50%,100%{transform:translateY(-64px)}}
 @keyframes kblink{0%,49.9%{opacity:1}50%,100%{opacity:0}}
 @keyframes kzz{0%{transform:translate(0,0);opacity:0}25%{opacity:1}100%{transform:translate(9px,-27px);opacity:0}}
@@ -603,8 +635,9 @@ const PCSS=Object.fromEntries(PIXEL_CSS.split('}').filter(Boolean).map(r=>[r.sli
 function pixelCss(svg){let o='';for(const c of new Set([...svg.matchAll(/class="(p[a-zA-Z]{1,2})"/g)].map(m=>m[1])))o+=PCSS[c]||'';return o}
 function styleFor(svg,V){const A=keysOf(CSS),B=keysOf(V.css||''),used=new Set([...svg.matchAll(/animation:\s*([\w-]+)/g)].map(m=>m[1]));
   let o=A.base+B.base;for(const n of used)o+=A.m[n]||B.m[n]||'';return o+KF.join('')}
-// The desktop refuses a scene over 131072 characters: a frame over BUDGET is drawn again with LITE.
-const BUDGET=120000;
+// The desktop refuses a scene over 131072 characters: a frame over it is drawn again with LITE. Six or seven
+// walkers at once take a frame past 120000, where a lower budget left them gliding for seconds.
+const BUDGET=131072;
 function compose(now,margins){let s=composeOnce(now,margins);if(s.length>BUDGET){W.lite++;LITE=true;try{s=composeOnce(now,margins)}finally{LITE=false}}return s}
 function composeOnce(now,margins){
   const V=VIEWS[VIEW],D=derive(now);navFor(V);TUSE=new Set();KF=[];AUSE=new Map();
@@ -750,10 +783,10 @@ function waterLife(now){let s='';const r=rnd(8);const cells=[...WATER].map(k=>k.
   return s}
 
 VIEWS.valley={
-  order:1,tag:'RPG pixel · vue de dessus',name:'Session Village',
-  desc:'Un village de jeu de rôle en tuiles 16 px, bâti sur les deux rives : les signaux clés à droite, le centre reste un pré calme sous la conversation.',
-  game:'Inspiré des villages de Stardew Valley et des hubs de Zelda',
-  sources:`village pensé comme un parc d'attractions qui fait passer devant chaque lieu (<a href="https://www.pcgamesn.com/stardew-valley/stardew-valley-map-design" target="_blank" rel="noopener">PCGamesN</a>), conseils de mise en page (<a href="https://stardewmodding.wiki.gg/wiki/Tael%27s_Guide_to_good_map_making" target="_blank" rel="noopener">wiki Stardew Modding</a>). Tuiles : packs Tiny Town, Tiny Dungeon et Tiny Farm de Kenney, licence CC0 (<a href="https://opengameart.org/content/tiny-town" target="_blank" rel="noopener">OpenGameArt</a>). Personnages animés : Ninja Adventure de Pixel-boy et AAA, licence CC0 (<a href="https://pixel-boy.itch.io/ninja-adventure-asset-pack" target="_blank" rel="noopener">itch.io</a>). Eau, pont, sablier, bannières, feu de camp et brume dessinés pour ce labo.`,
+  order:1,tag:'Pixel RPG · top-down view',name:'Session Village',
+  desc:'An RPG village in 16 px tiles, built on both banks: the key signals on the right, the middle stays a calm meadow under the conversation.',
+  game:'Inspired by the villages of Stardew Valley and the hubs of Zelda',
+  sources:`a village laid out like a theme park that walks you past every place (<a href="https://www.pcgamesn.com/stardew-valley/stardew-valley-map-design" target="_blank" rel="noopener">PCGamesN</a>), layout tips (<a href="https://stardewmodding.wiki.gg/wiki/Tael%27s_Guide_to_good_map_making" target="_blank" rel="noopener">Stardew Modding wiki</a>). Tiles: Kenney's Tiny Town, Tiny Dungeon and Tiny Farm packs, CC0 license (<a href="https://opengameart.org/content/tiny-town" target="_blank" rel="noopener">OpenGameArt</a>). Animated characters: Ninja Adventure by Pixel-boy and AAA, CC0 license (<a href="https://pixel-boy.itch.io/ninja-adventure-asset-pack" target="_blank" rel="noopener">itch.io</a>). Water, bridge, hourglass, banners, campfire and mist drawn for this lab.`,
   night:'#3a4384',birdFrom:[1700,40],
   sprites:{hero:{opus:'d84',sonnet:'d96',haiku:'d112',fable:'d99'},v1:'d88',v2:'d100',v3:'f109',v4:'d85',smith:'d87',carpenter:'d98',scribe:'d111',courier:'d85',banker:'d86',farmer:'f108',guard:'d97',adv:'d96',slime:'d108',goblin:'d110',ogre:'d109',merchant:'d100',wagon:'t57',bard:'d88',fisher:'f109',ghost:'d121'},
   tools:{smith:'t128',carpenter:'t127',farmer:'t129'},
@@ -761,19 +794,19 @@ VIEWS.valley={
   actors:{hero:{opus:'hero_opus',sonnet:'hero_sonnet',haiku:'hero_haiku',fable:'hero_fable'},v1:'v1',v2:'v2',v3:'v3',v4:'v4',smith:'smith',carpenter:'carpenter',scribe:'scribe',courier:'courier',banker:'banker',farmer:'farmer',guard:'guard',adv:'adv',merchant:'merchant',bard:'bard',fisher:'fisher',ghost:'ghost',slime:'slime',goblin:'goblin',ogre:'ogre'},
   vehicle:()=>{TUSE.add('t57');return `<use href="#t57" x="-24" y="-46"/>`},
   places:{
-    think:{look:'cristal = modèle, éclats = effort, sablier = limite 5 h',name:'Tour du mage',note:'Le cristal prend la couleur du modèle et grossit quand Claude réfléchit, ses éclats tournent plus vite avec l\'effort. Le sablier de la façade se vide avec la limite 5 h.',node:'tower',work:'towerW',label:[X(30)+12,Y(6)+12],fire:[X(31)+24,Y(8)+30,.9],fx:[X(31)+24,Y(5)+30]},
-    bash:{look:'four allumé, wagonnet qui roule',name:'Mine',note:'Le four rougeoie, le wagonnet roule sur les rails, le forgeron frappe l\'enclume.',node:'mine',work:'anvil',label:[X(2),Y(1)+6],fire:[X(4)+24,Y(3)+40,1]},
-    edit:{look:'copeaux qui volent, cheminée qui fume',name:'Atelier',note:'Le charpentier travaille à la hache, les copeaux volent, la cheminée fume.',node:'ws',work:'wsW',label:[X(1)+24,Y(8)-12],fire:[X(1)+24,Y(7)+40,1.1]},
-    read:{look:'vitres bleues, pages qui tournent',name:'Bibliothèque',note:'Les vitres s\'éclairent en bleu, des pages tournent autour du toit, le scribe lit près des étagères.',node:'lib',work:'libW',label:[X(6),Y(8)-12],fire:[X(6),Y(7)+40,1.1]},
-    web:{look:'pigeons, drapeau de la boîte aux lettres',name:'Poste',note:'Les pigeons tournent au-dessus du toit, le drapeau de la boîte aux lettres se lève quand tu envoies un message.',node:'post',work:'postW',label:[X(6)+24,Y(0)+6],fire:[X(6)+24,Y(2)+40,1]},
-    agents:{look:'une bannière par sous-agent',name:'Guilde',note:'Une bannière par sous-agent sur la façade, et un chevalier qui part tenir la lisière du bois.',node:'guild',label:[X(7),Y(17)-12],fire:[X(7),Y(16)+40,1.1]},
-    context:{look:'brume violette et monstres',name:'Brume',note:'La brume violette sort du bois hanté, en bas à droite, et monte avec le contexte ; les monstres la suivent. Au-delà de 60 %, le brasier de la tour de guet vire au violet.',node:'watch',label:[X(31)+24,Y(11)-54],fire:[X(31)+24,Y(13)+40,.8]},
-    cost:{look:'piles de pièces, coffre puis mimique',name:'Banque',note:'Les piles de pièces grandissent avec la dépense, le coffre s\'ouvre, puis devient un mimique au-delà de 5 $.',node:'bank',work:'bankW',label:[X(26)+24,Y(8)-12],fire:[X(26)+24,Y(7)+40,1],fx:[X(28)+24,Y(8)]},
-    todo:{look:'une parcelle par tâche, mûre si faite',name:'Ferme',note:'Une parcelle par tâche : pousse à faire, légume mûr une fois faite.',node:'farm',work:'farmW',work2:'farmW2',label:[X(1)+24,Y(12)-12],fire:[X(1)+24,Y(12)+40,1],fx:[X(6),Y(11)]},
-    waves:{look:'une tour par wave, chantier = avancement',name:'Château',note:'Une tour par wave sur la muraille : finie et pavoisée si mergée, chantier qui monte avec l\'avancement, bannière quand la PR est ouverte.',node:'castle',label:[X(31),Y(2)+12],fire:[X(31),Y(2)+40,1],fx:[X(31),Y(1)]},
+    think:{look:'crystal = model, shards = effort, hourglass = 5-hour limit',name:'Mage tower',note:'The crystal takes the model\'s color and grows when Claude thinks, its shards spin faster with the effort. The hourglass on the front empties with the 5-hour limit.',node:'tower',work:'towerW',label:[X(30)+12,Y(6)+12],fire:[X(31)+24,Y(8)+30,.9],fx:[X(31)+24,Y(5)+30]},
+    bash:{look:'lit furnace, rolling mine cart',name:'Mine',note:'The furnace glows, the mine cart rolls on the rails, the smith strikes the anvil.',node:'mine',work:'anvil',label:[X(2),Y(1)+6],fire:[X(4)+24,Y(3)+40,1]},
+    edit:{look:'flying wood chips, smoking chimney',name:'Workshop',note:'The carpenter works with the axe, wood chips fly, the chimney smokes.',node:'ws',work:'wsW',label:[X(1)+24,Y(8)-12],fire:[X(1)+24,Y(7)+40,1.1]},
+    read:{look:'blue windows, turning pages',name:'Library',note:'The windows light up blue, pages turn around the roof, the scribe reads by the shelves.',node:'lib',work:'libW',label:[X(6),Y(8)-12],fire:[X(6),Y(7)+40,1.1]},
+    web:{look:'pigeons, mailbox flag',name:'Post office',note:'Pigeons circle above the roof, the mailbox flag goes up when you send a message.',node:'post',work:'postW',label:[X(6)+24,Y(3)-12],fire:[X(6)+24,Y(2)+40,1]},
+    agents:{look:'one banner per sub-agent',name:'Guild',note:'One banner per sub-agent on the front, and a knight who sets off to hold the edge of the woods.',node:'guild',label:[X(7),Y(17)-12],fire:[X(7),Y(16)+40,1.1]},
+    context:{look:'purple mist and monsters',name:'Mist',note:'The purple mist comes out of the haunted woods, bottom right, and rises with the context; the monsters follow it. Past 60%, the watchtower brazier turns purple.',node:'watch',label:[X(31)+24,Y(11)-54],fire:[X(31)+24,Y(13)+40,.8]},
+    cost:{look:'coin piles, chest then mimic',name:'Bank',note:'The coin piles grow with the spending, the chest opens, then turns into a mimic past $5.',node:'bank',work:'bankW',label:[X(26)+24,Y(8)-12],fire:[X(26)+24,Y(7)+40,1],fx:[X(28)+24,Y(8)]},
+    todo:{look:'one plot per task, ripe when done',name:'Farm',note:'One plot per task: a sprout to do, a ripe vegetable once done.',node:'farm',work:'farmW',work2:'farmW2',label:[X(1)+24,Y(12)-12],fire:[X(1)+24,Y(12)+40,1],fx:[X(6),Y(11)]},
+    waves:{look:'one tower per wave, scaffolding = progress',name:'Castle',note:'One tower per wave on the wall: finished and flagged once merged, scaffolding that rises with the progress, a banner while the PR is open.',node:'castle',label:[X(31),Y(2)+12],fire:[X(31),Y(2)+40,1],fx:[X(31),Y(1)]},
   },
-  extraLook:[['Héros','modèle (classe) et effort (aura)','#8f62f5'],['Ciel','limite 5 h : jour, soir, nuit, pluie','#ffd27a'],['Village endormi','la session n\'a pas commencé','#5a6988'],['Visiteurs','événements au hasard','#84c669']],
-  extraLegend:[['Héros','Le modèle choisit le héros (mage, chevalier, rôdeur, barde) et la couleur de son aura, qui bat plus vite avec l\'effort.','#8f62f5'],['Lumière','La limite 5 h fait passer le jour : matin à 0 %, soir vers 60 %, nuit et pluie au-delà de 90 %.','#ffd27a'],['Avant la session','Le village dort : nuit bleue, héros endormi près du feu de camp, quête qui attend sur le panneau. Le premier message fait lever le soleil.','#5a6988']],
+  extraLook:[['Hero','model (class) and effort (aura)','#8f62f5'],['Sky','5-hour limit: day, evening, night, rain','#ffd27a'],['Sleeping village','the session has not started','#5a6988'],['Visitors','random events','#84c669']],
+  extraLegend:[['Hero','The model picks the hero (mage, knight, ranger, bard) and the color of its aura, which pulses faster with the effort.','#8f62f5'],['Light','The 5-hour limit moves the day along: morning at 0%, evening around 60%, night and rain past 90%.','#ffd27a'],['Before the session','The village sleeps: blue night, the hero asleep by the campfire, a quest waiting on the board. The first message makes the sun rise.','#5a6988']],
   nav:{nodes:N,edges:EDGES},home:'pl',camp:'camp',
   wander:RIGHT,wanderOf:e=>(e.kind==='worker'&&e.sig!=='cost')||(e.kind==='villager'&&e.id%3===0)?LEFT:RIGHT,
   houses:['barn','lib','guild'],
@@ -781,14 +814,14 @@ VIEWS.valley={
   pushRoute:['post','castle'],
   // random life, one event every 40 to 100 s (never before the session starts)
   ambient:[
-    {id:'merchant',name:'Un marchand traverse',w:3,when:D=>D.n<.6,run(now){const l=Math.random()<.5,a=l?'roadL':'roadR',b=l?'roadR':'roadL';addEnt('visitor',a,{skin:'merchant',dest:b,speed:55});addEnt('visitor',a,{skin:'wagon',dest:b,speed:55,until:now+1100,jy:0})}},
-    {id:'bard',name:'Un barde joue sur la place',w:2,run(now){const l=Math.random()<.5;addEnt('visitor',l?'roadL':'roadR',{skin:'bard',stop:'pl',stay:18000,act:'dance',notes:true,dest:l?'roadR':'roadL',speed:75})}},
-    {id:'fisher',name:'Un pêcheur au bord de l\'eau',w:2,when:D=>D.n<.7,run(now){addEnt('visitor','roadL',{skin:'fisher',stop:'fish',stay:40000,act:'idle',dest:'roadL',speed:60,jx:0,jy:0})}},
-    {id:'ghost',name:'Un fantôme sort du cimetière',w:2,when:D=>D.n>.4,run(now){addEnt('visitor','spB',{skin:'ghost',stop:'fr4',stay:14000,act:'idle',dest:'spR2',speed:28})}},
-    {id:'star',name:'Une étoile filante',w:2,when:D=>D.n>.4,run(now){fxAdd('star',now,{dur:1600,x:Math.round(200+Math.random()*900),y:Math.round(30+Math.random()*220)})}},
-    {id:'flock',name:'Des oiseaux passent',w:3,when:D=>D.n<.6,run(now){fxAdd('flock',now,{dur:15000,y:Math.round(120+Math.random()*560)})}},
-    {id:'cloud',name:'L\'ombre d\'un nuage',w:2,when:D=>D.n<.8,run(now){fxAdd('cloud',now,{dur:45000,y:Math.round(Math.random()*600)})}},
-    {id:'shadow',name:'Un dragon survole le village',w:1,when:D=>D.ctx>=.5,run(now){fxAdd('shadow',now,{dur:7000,y:Math.round(420+Math.random()*400)})}},
+    {id:'merchant',name:'A merchant passes through',w:3,when:D=>D.n<.6,run(now){const l=Math.random()<.5,a=l?'roadL':'roadR',b=l?'roadR':'roadL';addEnt('visitor',a,{skin:'merchant',dest:b,speed:55});addEnt('visitor',a,{skin:'wagon',dest:b,speed:55,until:now+1100,jy:0})}},
+    {id:'bard',name:'A bard plays on the square',w:2,run(now){const l=Math.random()<.5;addEnt('visitor',l?'roadL':'roadR',{skin:'bard',stop:'pl',stay:18000,act:'dance',notes:true,dest:l?'roadR':'roadL',speed:75})}},
+    {id:'fisher',name:'A fisher by the water',w:2,when:D=>D.n<.7,run(now){addEnt('visitor','roadL',{skin:'fisher',stop:'fish',stay:40000,act:'idle',dest:'roadL',speed:60,jx:0,jy:0})}},
+    {id:'ghost',name:'A ghost comes out of the graveyard',w:2,when:D=>D.n>.4,run(now){addEnt('visitor','spB',{skin:'ghost',stop:'fr4',stay:14000,act:'idle',dest:'spR2',speed:28})}},
+    {id:'star',name:'A shooting star',w:2,when:D=>D.n>.4,run(now){fxAdd('star',now,{dur:1600,x:Math.round(200+Math.random()*900),y:Math.round(30+Math.random()*220)})}},
+    {id:'flock',name:'Birds fly by',w:3,when:D=>D.n<.6,run(now){fxAdd('flock',now,{dur:15000,y:Math.round(120+Math.random()*560)})}},
+    {id:'cloud',name:'The shadow of a cloud',w:2,when:D=>D.n<.8,run(now){fxAdd('cloud',now,{dur:45000,y:Math.round(Math.random()*600)})}},
+    {id:'shadow',name:'A dragon flies over the village',w:1,when:D=>D.ctx>=.5,run(now){fxAdd('shadow',now,{dur:7000,y:Math.round(420+Math.random()*400)})}},
   ],
   css:`.vb{fill:#bd6c4a;stroke:#3f2631;stroke-width:2.5}.vb.va{fill:#e38628}.vl{fill:#cf8254}.vl.va{fill:#fdbe53}.vs,.vsp{stroke:#3f2631;stroke-width:3}.vsp{fill:#763b36}.vr{fill:none;stroke:#fee761;stroke-width:3}.vt{font:700 12.5px ui-monospace,Menlo,Consolas,monospace;fill:#fff4dc}
 @keyframes vp-cart{0%,100%{transform:translateX(0)}50%{transform:translateX(96px)}}
@@ -798,7 +831,7 @@ VIEWS.valley={
 @keyframes vp-graze{0%,100%{transform:translateX(0)}50%{transform:translateX(-36px)}}`,
   draw(now,D){
     const L=[];HUD=[];for(const k in WIN)for(const[c,r]of WIN[k])L.push([X(c)+15,Y(r)+12,18,18,'#ffcf6a']);
-    let g=MARGIN+GROUND+waterLife(now);
+    let g=waterLife(now);
     const props=[mine(D,now,L),tower(D,now,L),castle(D,now,L),workshop(D,now,L),library(D,now,L),post(D,now,L),guild(D,now,L),watch(D,now,L),bank(D,now,L),...farm(D,now,L),...plaza(D,now,L)].filter(Boolean);
     props.push([Y(7),smoke(X(26)+24,Y(6)-6,now,1,'#e8e4ee',2,500)]);
     const top='';

@@ -21,8 +21,10 @@ export interface SessionState {
 }
 export interface WorldState {
   dirty: boolean;
-  /** Steps taken, one a second: still poses go one step a frame. */
+  /** Steps taken, one a beat: still poses go one step a frame. */
   frame: number;
+  /** Seconds between two steps, 1 by default: with frames closer than a loop's steps, its still pose keeps the loop's pace. */
+  beat: number;
   /** Frames over budget, drawn again without walk cycles. */
   lite: number;
   fx: unknown[];

@@ -2,31 +2,32 @@
   "name": "session-village",
   "version": "0.1.0",
   "license": "MIT",
+  "engines": { "claude-code": ">=2.1.323" },
   "author": { "name": "Denis Guiraudet" },
   "description": "A pixel-art RPG village behind the conversation that lives at the pace of the session: model, effort, context, limits, cost, tools, tasks and PR waves.",
   "userConfig": {
     "margin_left": {
       "type": "number",
-      "title": "Marge gauche (px)",
-      "description": "Espace laissé libre à gauche du village, par exemple la largeur de la barre latérale. 0 : aucune marge.",
+      "title": "Left margin (px)",
+      "description": "Room left free on the left of the village, such as the width of the sidebar. 0: no margin.",
       "default": 300,
       "min": 0,
       "max": 2000
     },
     "margin_right": {
       "type": "number",
-      "title": "Marge droite (px)",
-      "description": "Espace laissé libre à droite du village, par exemple la largeur d'un panneau ouvert. 0 : aucune marge.",
+      "title": "Right margin (px)",
+      "description": "Room left free on the right of the village, such as the width of an open panel. 0: no margin.",
       "default": 300,
       "min": 0,
       "max": 2000
     },
     "frame_interval": {
       "type": "number",
-      "title": "Temps entre deux images (s)",
-      "description": "Le monde avance et une image du décor peut partir une fois par intervalle. Moins pour plus de fluidité, plus pour une machine qui peine. Entre 0,25 et 10.",
+      "title": "Time between two frames (s)",
+      "description": "The world moves on and a backdrop frame may go out once per interval. Less for smoother motion, more for a machine that struggles. Between 0.1 and 10.",
       "default": 1,
-      "min": 0.25,
+      "min": 0.1,
       "max": 10
     }
   }
