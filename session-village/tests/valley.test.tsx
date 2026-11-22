@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { S, W, newWorld, step } from '../hooks/world.js'
+import { S, W, newWorld, step, clickShares } from '../hooks/world.js'
 
 const BACKDROP = {
   plugin: 'session-village',
@@ -290,11 +290,55 @@ test('/village-margins keeps the margins for the next sessions when the settings
   engine(on)
   await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
   const done = await $.command.run({ command: 'village-margins', args: '300 400', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
-  expect(String((done as { text?: string } | undefined)?.text)).toBe('Village margins: left 300 px, right 400 px. Kept for the next sessions.')
+  expect(String((done as { text?: string } | undefined)?.text)).toBe('Village margins: left 300 px, right 400 px, conversation column 768 px. Kept for the next sessions.')
   expect((await svgOf($)).includes(room(300, 400))).toBe(true)
   // the next session starts from what was kept
   await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
   expect((await svgOf($)).includes(room(300, 400))).toBe(true)
+})
+
+test('the buildings keep out of the conversation column, 768 px by default, set with /village-margins column', async ($, on) => {
+  engine(on)
+  on('config.list', () => ({
+    value: ['margin_left', 'margin_right', 'column_width'].map(field => ({
+      key: `session-village.${field}`, label: field, kind: 'number', value: 0, provider: { kind: 'plugin', name: 'session-village' }, isLocked: false,
+    })),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  }) as any)
+  await $.session.start(START)
+  // the column and a little room on each side, never wider than the room between the margins
+  const svg = await svgOf($)
+  expect(svg.includes('--g0:calc(min(800px,100vw - var(--ml) - var(--mr)) / 2)')).toBe(true)
+  // the world shrinks where CSS can divide a length by a length
+  expect(svg.includes('@supports (scale:calc(2px / 1px))')).toBe(true)
+  const done = await $.command.run({ command: 'village-margins', args: 'column 960', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
+  expect(String((done as { text?: string } | undefined)?.text)).toBe('Village margins: left 300 px, right 300 px, conversation column 960 px. Saved in the plugin settings.')
+  expect(saved.get('session-village.column_width')).toBe(960)
+  expect((await svgOf($)).includes('--g0:calc(min(992px,')).toBe(true)
+})
+
+test('with no conversation column, the river alone parts the village at the window\'s height', { options: { column_width: 0 } }, async ($, on) => {
+  engine(on)
+  await $.session.start(START)
+  const svg = await svgOf($)
+  expect(svg.includes('--g0:0px')).toBe(true)
+  expect(svg.includes('@supports')).toBe(false)
+})
+
+test('two clicks on the village set the margins as shares of the window, until margins are set in pixels', async ($, on) => {
+  // clicks too close leave no room for the village; in either order
+  expect(clickShares(0.5, 0.6)).toBe(null)
+  expect(clickShares(0.875, 0.15625)).toEqual({ left: 0.1563, right: 0.125 })
+  const kept = new Map<string, unknown>([['margin-shares', { left: 0.1563, right: 0.125, over: { left: 300, right: 300 } }]])
+  engine(on, 0, true, kept)
+  await $.session.start(START)
+  expect((await svgOf($)).includes('--ml:calc(100vw * 0.1563);--mr:calc(100vw * 0.125);')).toBe(true)
+  const run = (args: string) => $.command.run({ command: 'village-margins', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
+  expect(String(((await run('click')) as { text?: string } | undefined)?.text)).toContain('just right of the sidebar')
+  expect(await debugOf($)).toContain('Waiting for two clicks.')
+  await run('left 250')
+  expect((await svgOf($)).includes(room(250, 300))).toBe(true)
+  expect(kept.has('margin-shares')).toBe(false)
 })
 
 test('other surfaces keep their own backdrop', async ($, on) => {

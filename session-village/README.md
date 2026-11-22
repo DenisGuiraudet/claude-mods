@@ -9,7 +9,7 @@ Un village de jeu de rôle en pixel art, derrière la conversation de Claude Cod
 /plugin install session-village@denis-claude-mods
 ```
 
-Il faut Claude Code v2.1.323 ou plus récent. Le fond s'affiche dans l'app Desktop. Le terminal, VS Code et l'app mobile gardent leur fond habituel. Le village occupe toute la hauteur de la fenêtre et suit son redimensionnement aussitôt. Quand la fenêtre est trop étroite pour l'afficher en entier, le pré de part et d'autre de la rivière rétrécit d'abord, les bâtiments restent entiers, puis les bords passent sous les marges. Au-delà de la carte, l'herbe continue, un peu assombrie. Sur une fenêtre basse, les panneaux grossissent pour rester lisibles.
+Il faut Claude Code v2.1.323 ou plus récent. Le fond s'affiche dans l'app Desktop. Le terminal, VS Code et l'app mobile gardent leur fond habituel. Le village se place de part et d'autre de la colonne de conversation, pour que ses bâtiments restent visibles, et suit le redimensionnement de la fenêtre aussitôt. Quand la place manque à côté de la colonne, il se réduit, centré en hauteur, jusqu'à 60 % de la hauteur de la fenêtre. Quand même cela ne suffit pas, il reprend toute la hauteur : le pré de part et d'autre de la rivière rétrécit d'abord, les bâtiments restent entiers, puis les bords passent sous les marges. Au-delà de la carte, l'herbe continue, un peu assombrie. Sur une fenêtre basse, les panneaux grossissent pour rester lisibles.
 
 ## Ce que montre chaque lieu
 
@@ -51,7 +51,7 @@ Les waves suivent la branche git courante. Un titre de PR contenant `[2/4]` fixe
 | Commande | Effet |
 |---|---|
 | `/village` | Ouvre ou ferme la légende : chaque lieu, sa valeur en direct et ce qu'il faut regarder. Le lieu actif est mis en avant. |
-| `/village-margins` | Règle la place laissée à gauche et à droite du village (voir plus bas). |
+| `/village-margins` | Règle la place laissée à gauche et à droite du village, et la largeur de la colonne de conversation (voir plus bas). |
 | `/village-sync` | Règle le temps entre deux images du décor, en secondes : `/village-sync 0.5`, `/village-sync 2`, `/village-sync 1` pour revenir au défaut. Entre 0,1 et 10 s (dix images par seconde, le plus que l'app accepte). Va dans le réglage `frame_interval`, ou reste gardé par le mod comme les marges. |
 | `/village-test` | Indique combien d'images du fond l'app a dessinées pendant la dernière minute, et à quel rythme. |
 | `/village-debug` | Fait le point en texte : version de Claude Code, décor dessiné ou non, images (nombre, rythme, taille), horloge, état de la session, personnages et effets, marges, taille que l'app donne au décor (en caractères) et ses changements, événements reçus (dont le dernier événement GitHub tel qu'il arrive), puis une série de vérifications sur la dernière image. |
@@ -67,13 +67,27 @@ Le fond couvre toute la fenêtre, y compris sous la barre latérale et les panne
 
 `/village-margins 285 410` règle les deux d'un coup, `0` retire une marge, et la commande seule affiche les valeurs en cours. Le village se redessine aussitôt, et l'herbe assombrie continue sous les marges. Les valeurs vont dans les réglages du plugin (`margin_left` et `margin_right`, dans `pluginConfigs` de `settings.json`). Quand l'app ne propose pas ces réglages, par exemple pour un plugin chargé depuis un dossier local, le mod les garde lui-même pour les sessions suivantes. Si le réglage change ensuite dans l'app, c'est lui qui compte.
 
+### Colonne de conversation
+
+Les bâtiments restent en dehors de la colonne de conversation, que l'app centre entre la barre latérale et le panneau de droite. Le mod compte 768 px, la largeur par défaut de l'app (960 ou 1 280 px quand la conversation est réglée plus large), plus 16 px de chaque côté. Pour une autre largeur :
+
+```
+/village-margins column 960
+```
+
+`0` retire la colonne : seule la rivière sépare alors les deux parties du village, à toute la hauteur de la fenêtre. La valeur va dans le réglage `column_width`.
+
+### Marges par clics
+
+Tape `/village-margins click`, puis clique deux fois sur le village : juste à droite de la barre latérale, puis juste à gauche du panneau de droite (ou près du bord droit de la fenêtre quand aucun panneau n'est ouvert). Un trait blanc marque le premier clic. Les marges deviennent des parts de la largeur de la fenêtre, à 1/64 près (la précision des clics que l'app transmet), et suivent la fenêtre quand elle change de taille. La barre latérale garde pourtant sa largeur en pixels : après un gros redimensionnement, ou quand tu ouvres ou fermes un panneau, refais les deux clics. Le mod attend les clics deux minutes au plus. Régler une marge en pixels remplace les marges par clics.
+
 ## Comment le fond est dessiné
 
 - **En tracés vectoriels** : l'app Desktop n'affiche pas les images intégrées à une scène. Chaque suite de pixels d'une même couleur sur une ligne est donc un trait. L'herbe est un motif répété, les cases du décor présentes plusieurs fois sont dessinées une seule fois, et un personnage n'envoie que ce qu'il montre (debout, la marche, l'attaque).
 - **Dans un cadre isolé** : le fond est dessiné dans un cadre à part (sans script) plutôt que comme une image. Ses animations CSS y tournent entre deux images, même quand l'app tourne sans accélération matérielle : vu dans l'app Desktop sous Windows, pour environ un tiers d'un cœur de processeur à une image par seconde. Avec l'accélération, elles tournent en continu, pour environ deux cœurs en plein travail.
 - **Image par image** : les animations sont en CSS, par paliers. Quand l'app fige malgré tout le fond (par exemple avec le réglage « Réduire les animations »), elle retire toutes les animations. Chaque élément animé porte donc aussi sa position du moment, et la scène reste juste image par image. Une boucle plus rapide que la seconde (pas de marche, clignements, flammes) avance alors d'un cran par image au lieu de sauter au hasard, et un effet court (fumée, pièces, sort) reste au moins 3 secondes pour se voir sur plusieurs images. Avec des images plus rapprochées (`/village-sync 0.25` ou `0.1`), une boucle garde sa vraie vitesse dès que les images suffisent à en montrer chaque cran.
 - **Une seconde** : le monde avance chaque seconde (réglable avec `/village-sync`, pour essayer une autre machine). Une image part quand quelque chose a changé, ou tant que quelqu'un marche ou qu'un effet joue. Au repos (tour fini, aucun sous-agent), le village ralentit : après 2 minutes sans événement de la session, une image toutes les 5 secondes au plus, puis, après 10 minutes, le village laisse place à un fond d'herbe uni jusqu'au prochain signal. Même immobile, le village coûte à l'app environ 0,7 cœur de processeur avec l'accélération matérielle, car elle continue de le redessiner ; le fond uni ne coûte presque rien. Une image montre le monde à l'heure où elle a été demandée, pas à celle où l'app la dessine : les pas restent réguliers même quand l'app dessine avec un peu de retard. Les villageois marchent à mi-vitesse, pour avancer de moins d'une case d'une image à l'autre. En simulation sur dix minutes : aucune image avant le premier message, environ 60 par minute ensuite. Mesuré dans l'app avec `/village-test` : 60 images dessinées en une minute, une par seconde.
-- **Mise en page** : l'app ne donne pas la taille de la fenêtre en pixels. Le décor se place donc en CSS, avec les unités `vw` et `vh` : le monde est dessiné trois fois à la hauteur de la fenêtre, et chaque copie est découpée (partie gauche, rivière, partie droite). Chaque copie ne dessine que sa part du sol. Il suit la fenêtre sans attendre une nouvelle image.
+- **Mise en page** : l'app ne donne pas la taille de la fenêtre en pixels. Le décor se place donc en CSS, avec les unités `vw` et `vh` : le monde est dessiné trois fois, à la hauteur de la fenêtre ou moins, et chaque copie est découpée (partie gauche, rivière, partie droite). Pour réduire le village, le CSS divise une longueur par une autre. Un navigateur qui ne sait pas le faire garde le village à toute la hauteur. Chaque copie ne dessine que sa part du sol. Il suit la fenêtre sans attendre une nouvelle image.
 - **Taille** : une image fait environ 85 000 caractères au repos et parfois plus de 120 000 en plein travail (six ou sept personnages en marche), sous la limite de 131 072. Au-delà de cette limite, les personnages en marche glissent sur leur image debout.
 
 ## Développer le mod

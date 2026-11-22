@@ -22,6 +22,14 @@
       "min": 0,
       "max": 2000
     },
+    "column_width": {
+      "type": "number",
+      "title": "Conversation column (px)",
+      "description": "Width of the conversation column, which the village keeps its buildings out of: 768 by default in the app, 960 or 1280 at its wider conversation widths. 0: the river alone parts the village.",
+      "default": 768,
+      "min": 0,
+      "max": 2000
+    },
     "frame_interval": {
       "type": "number",
       "title": "Time between two frames (s)",

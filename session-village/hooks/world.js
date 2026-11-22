@@ -55,14 +55,15 @@ const dist=(a,b)=>Math.hypot(b[0]-a[0],b[1]-a[1]);
 // layers over the whole scene (night, dawn, flash, rain) cover that margin too (BLEED).
 const BLEED='x="-1600" y="-1000" width="4800" height="3000"';
 const FRAME='<path d="M-1600 -1000h4800v3000h-4800zM0 0v1000h1600v-1000z" fill="#14210f" fill-rule="evenodd" opacity=".35"/>';
-// Only CSS knows the window's size (vw, vh). The world (#kw) is drawn three times at the window's height,
-// each copy clipped: the left part up to x 690, the river (690-940), the right part from 940. When the window
-// is too narrow for the whole village, the meadow on each side of the river goes first (the buildings stay,
-// 0-432 and 1200-1600), then the edges pass under the margins. A margin grows with the window: none under
-// 700 px wide, all of it from 1600 px. On a short window the signs grow to stay readable. The buildings stay
+// Only CSS knows the window's size (vw, vh). The world (#kw) is drawn three times at the window's height (or
+// less, see layoutCss), each copy clipped: the left part up to x 690, the river (690-940), the right part from
+// 940. When the window is too narrow for the whole village, the meadow on each side of the river goes first (the
+// buildings stay, 0-432 and 1200-1600), then the edges pass under the margins. A margin grows with the window:
+// none under 700 px wide, all of it from 1600 px; one set by two clicks (fracLeft, fracRight) is a share of the
+// window's width instead. On a short window the signs grow to stay readable. The buildings stay
 // up to a line between two columns of tiles, which nothing on the ground crosses: a line inside a column
 // left slivers of a tree, a bush or the road at the edge of a part.
-const CUT={l:690,r:940,keepL:432,keepR:1200},vh=n=>`${f(n/10)}vh`;
+const CUT={l:690,r:940,keepL:432,keepR:1200};
 // The static ground cut in three at the cuts, once: each clipped copy draws its own part, not the whole map, which
 // the app would otherwise paint three times over. In ground units (a third of the world's); a run of pixels or a
 // tile across a cut goes in both parts. Each part keeps the whole grass underneath: cut to the part, the grass
@@ -92,14 +93,28 @@ const GROUND_PARTS=(()=>{
   return keys.map(k=>`<g id="kg${k}" transform="scale(3)"><rect x="-544" y="-336" width="1632" height="1008" fill="url(#vg)"/>`
     +`<g transform="translate(0 .5)">${Object.entries(runs[k]).map(([cls,l])=>`<path class="${cls}" d="${path(l)}"/>`).join('')}${rows[k]}</g></g>`).join('');
 })();
-function layoutCss({left=0,right=0}={}){
-  const m=v=>v>0?`clamp(0px,calc((100vw - 700px) / 900 * ${v}),${v}px)`:'0px',C=CUT,river=C.r-C.l;
-  return `.kv{--ml:${m(left)};--mr:${m(right)};--xc:calc((var(--ml) + 100vw - var(--mr)) / 2 - ${vh(river/2)});`
-    +`--x0:max(calc(var(--xc) - ${vh(C.l)}),min(var(--ml),calc(var(--xc) - ${vh(C.keepL)})));`
-    +`--x1:min(calc(var(--xc) + ${vh(1600-C.l)}),max(calc(100vw - var(--mr)),calc(var(--xc) + ${vh(river+1600-C.keepR)})))}`
-    +`.kml{transform:translate(var(--x0),0)}.kmc{transform:translate(calc(var(--xc) - ${vh(C.l)}),0)}.kmr{transform:translate(calc(var(--x1) - 160vh),0)}`
-    +`.kvl{width:calc(var(--xc) + 1px)}.kvc{transform:translate(var(--xc),0);width:calc(${vh(river)} + 1px)}.kvr{transform:translate(calc(var(--xc) + ${vh(river)}),0);width:100vw}`
-    +`.ksg{transform:scale(var(--sg,1))}@media (max-height:900px){.kv{--sg:1.12}}@media (max-height:780px){.kv{--sg:1.28}}@media (max-height:660px){.kv{--sg:1.5}}`}
+// The conversation column, `column` px wide (768 in the desktop app by default, 960 or 1280 when set wider) and
+// centred between the margins as the app lays it out, frosts what is under it. Each part's buildings stay out
+// of it, COL_PAD from its edge, as close to the river as that allows, with the meadow under the column. When a
+// side is too narrow for its buildings, the world shrinks, centred, and its signs less than it. Where it would
+// take less than MIN_H of the window's height, the room is too small for that to help: the world keeps the
+// window's height and the meadow goes first, as without a column. Shrinking takes CSS dividing a length by a
+// length, which @supports checks: where it cannot, the world keeps the window's height. With no column (0), the
+// river alone parts the village.
+const COL_PAD=16,MIN_H=60;
+function layoutCss({left=0,right=0,column=0,fracLeft,fracRight}={}){
+  const m=(v,fr)=>fr!=null?`calc(100vw * ${+fr.toFixed(4)})`:v>0?`clamp(0px,calc((100vw - 700px) / 900 * ${v}),${v}px)`:'0px';
+  const C=CUT,river=C.r-C.l,u=n=>`var(--H) * ${n/1000}`;
+  return `.kv{--ml:${m(left,fracLeft)};--mr:${m(right,fracRight)};--H:100vh;--cx:calc((var(--ml) + 100vw - var(--mr)) / 2);`
+    +`--g0:${column>0?`calc(min(${column+2*COL_PAD}px,100vw - var(--ml) - var(--mr)) / 2)`:'0px'};--g:max(var(--g0),calc(${u(river/2)}));--xc:calc(var(--cx) - ${u(river/2)});`
+    +`--x0:max(min(calc(var(--xc) - ${u(C.l)}),calc(var(--cx) - var(--g) - ${u(C.keepL)})),min(var(--ml),calc(var(--xc) - ${u(C.keepL)})));`
+    +`--x1:min(max(calc(var(--xc) + ${u(1600-C.l)}),calc(var(--cx) + var(--g) + ${u(1600-C.keepR)})),max(calc(100vw - var(--mr)),calc(var(--xc) + ${u(river+1600-C.keepR)})));--y0:calc((100vh - var(--H)) / 2)}.ksg{transform:scale(var(--sg,1))}`
+    // the height that fits the buildings beside the column (--a), or the window's when under MIN_H of it
+    +(column>0?`@supports (scale:calc(2px / 1px)){.kv{--a:calc((var(--cx) - var(--g0) - var(--ml)) * ${f2(1000/C.keepL)});`
+      +`--H:max(min(var(--a),100vh),min(100vh,calc((${MIN_H}vh - var(--a)) * 1000)));--s:calc(var(--H) / 100vh)}.ksg{transform:scale(calc(var(--sg,1) / sqrt(var(--s))))}}`:'')
+    +`.kml{transform:translate(var(--x0),var(--y0)) scale(var(--s,1))}.kmc{transform:translate(calc(var(--xc) - ${u(C.l)}),var(--y0)) scale(var(--s,1))}.kmr{transform:translate(calc(var(--x1) - ${u(1600)}),var(--y0)) scale(var(--s,1))}`
+    +`.kvl{width:calc(var(--xc) + 1px)}.kvc{transform:translate(var(--xc),0);width:calc(${u(river)} + 1px)}.kvr{transform:translate(calc(var(--xc) + ${u(river)}),0);width:100vw}`
+    +`@media (max-height:900px){.kv{--sg:1.12}}@media (max-height:780px){.kv{--sg:1.28}}@media (max-height:660px){.kv{--sg:1.5}}`}
 // The world at the window's height (meet in a box ten windows wide), and the three clipped copies.
 const LAYOUT_DEFS=GROUND_PARTS+['l','c','r'].map(k=>`<svg id="kws${k}" width="1000%" height="100%" viewBox="0 0 1600 1000" preserveAspectRatio="xMinYMid meet" overflow="visible"><use href="#kg${k}"/><use href="#kw"/></svg>`).join('')
   +['l','c','r'].map(k=>`<clipPath id="kv${k}"><rect class="kv${k}" height="100%"/></clipPath>`).join('');
@@ -638,6 +653,11 @@ function styleFor(svg,V){const A=keysOf(CSS),B=keysOf(V.css||''),used=new Set([.
 // The desktop refuses a scene over 131072 characters: a frame over it is drawn again with LITE. Six or seven
 // walkers at once take a frame past 120000, where a lower budget left them gliding for seconds.
 const BUDGET=131072;
+// Two clicks on the village at the edges of the room the app's panels leave, each a share of its width (0 to
+// 1, in either order): the margins as shares of the width, or null for clicks too close to leave the room.
+const clickShares=(a,b)=>{const l=Math.min(a,b),r=Math.max(a,b);return r-l<.2?null:{left:+l.toFixed(4),right:+(1-r).toFixed(4)}};
+// Where the first of two clicks setting the margins landed, a share of the window's width: a line across it.
+const mark=x=>`<rect width="4" height="100%" fill="#fff" opacity=".85" style="transform:translateX(calc(100vw * ${+x.toFixed(4)} - 2px))"/>`;
 function compose(now,margins){let s=composeOnce(now,margins);if(s.length>BUDGET){W.lite++;LITE=true;try{s=composeOnce(now,margins)}finally{LITE=false}}return s}
 function composeOnce(now,margins){
   const V=VIEWS[VIEW],D=derive(now);navFor(V);TUSE=new Set();KF=[];AUSE=new Map();
@@ -654,7 +674,7 @@ function composeOnce(now,margins){
   if(V.sprites)need.clear();if(W.ents.some(e=>e.kind==='cart'))need.add('cart');
   const defs=`<defs>${fw}${charDefs(D,V,need)}${D.storm>0?`<pattern id="krainp" width="80" height="120" patternUnits="userSpaceOnUse"><path d="M20 0 l-6 22 M62 40 l-6 22 M40 84 l-6 22" stroke="#d4dcff" stroke-opacity=".6" stroke-width="1.8"/></pattern>`:''}${V.sprites?'<ellipse id="ksh" rx="15" ry="5" fill="#3f2631" opacity=".28"/>':''}${[...AUSE].map(([k,fs])=>`<g id="a_${k}" transform="translate(0 .5)">${[...fs].map(([c,b])=>{const A=ACTORS[k][c];return (b&2?A[1]:b&1?A[0]:'')+(b&4?A[2]:'')}).join('')}</g>`).join('')}${R.defs||''}${tileDefs()}<g id="kw">${o}${FRAME}</g>${LAYOUT_DEFS}</defs>`;
   const body=defs.replace(/ shape-rendering="crispEdges"/g,'');
-  return `<svg xmlns="http://www.w3.org/2000/svg" class="kv" width="100%" height="100%" shape-rendering="crispEdges" role="img" aria-label="${esc(V.name)}"><style>${pixelCss(body)}${styleFor(body,V)}${layoutCss(margins)}</style>${body}${LAYOUT}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" class="kv" width="100%" height="100%" shape-rendering="crispEdges" role="img" aria-label="${esc(V.name)}"><style>${pixelCss(body)}${styleFor(body,V)}${layoutCss(margins)}</style>${body}${LAYOUT}${margins&&margins.mark!=null?mark(margins.mark):''}</svg>`;
 }
 const VIEWS={};
 
@@ -861,4 +881,4 @@ VIEWS.valley={
 })();
 
 export { S, W, MODELS, EFFORT, SIG, VIEWS, derive, newWorld, step, retarget, wake, compose, busy, ambient,
-  evPrompt, evError, evCompact, evMerge, evCommit, evPush, sigActive, sigValue, sigCol, progress };
+  evPrompt, evError, evCompact, evMerge, evCommit, evPush, sigActive, sigValue, sigCol, progress, clickShares };

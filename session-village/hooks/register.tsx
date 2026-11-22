@@ -5,13 +5,14 @@
 // The world steps every second, and a frame goes out when it changed, or while someone walks or an effect
 // plays: a desktop that freezes the backdrop shows only the frames. /village opens the legend,
 // /village-test tells how many frames the desktop drew in the last minute, /village-margins sets the room
-// left on each side of the village (userConfig margin_left and margin_right), /village-sync the time between
+// left on each side of the village (userConfig margin_left and margin_right, or two clicks on it) and the width
+// of the conversation column it keeps its buildings out of (column_width), /village-sync the time between
 // two frames (userConfig frame_interval), /village-debug reports what the mod sees and checks the last frame.
 import type { EngineInterface, Register } from 'claude-code'
 
 import {
   S, W, VIEWS, derive, newWorld, step, retarget, wake, compose, busy, evPrompt, evError, evCompact,
-  evMerge, evCommit, evPush, sigActive, sigValue, sigCol,
+  evMerge, evCommit, evPush, sigActive, sigValue, sigCol, clickShares,
 } from './world.js'
 import type { Activity, EffortKey, ModelKey, Steps } from './world.js'
 
@@ -90,12 +91,29 @@ const DEFAULT_MARGIN = { left: 300, right: 300 } as const
 const margin: Record<'left' | 'right', number> = { ...DEFAULT_MARGIN }
 const MARGIN_KEY = { left: 'margin_left', right: 'margin_right' } as const
 const pixels = (v: unknown): number => (typeof v === 'number' && v > 0 ? Math.min(2000, Math.round(v)) : 0)
+// The conversation column's width in CSS pixels (userConfig column_width): the app's own, 768 by default.
+const DEFAULT_COLUMN = 768
+let column: number = DEFAULT_COLUMN
+// Margins set by two clicks on the village (/village-margins click), shares of the window's width: they stand
+// in for the pixel margins until those are set again, here or in the app (`over`, the margins they replaced).
+const SHARE_STORE = 'margin-shares'
+let share: { left: number; right: number } | null = null
+// While /village-margins click waits for its two clicks (CLICK_WAIT at most), and where the first one landed.
+const CLICK_WAIT = 2 * 60_000
+let clicking: { until: number; first?: number } | null = null
+const waiting = () => (clicking && now() <= clicking.until ? clicking : null)
+// What the scene's CSS lays out: the margins, the column, and the line where the first click landed.
+const layout = () => {
+  const first = waiting()?.first
+  return { ...margin, column, ...(share ? { fracLeft: share.left, fracRight: share.right } : {}), ...(first !== undefined ? { mark: first } : {}) }
+}
+const pct = (v: number) => `${Math.round(v * 1000) / 10}%`
 // Margins /village-margins could not write to the settings (no /config row, as for a --plugin-dir plugin):
 // kept in the store instead, and preferred to the settings at the next session, until the settings change.
 const MARGIN_STORE = 'margins'
 // What the settings said when the plugin loaded. A value the mod kept notes the settings it stood in for
 // (`over`, the defaults when absent): once they say something else, someone set them in the app, and they win.
-const asSet = { left: DEFAULT_MARGIN.left as number, right: DEFAULT_MARGIN.right as number, gap: DEFAULT_GAP }
+const asSet = { left: DEFAULT_MARGIN.left as number, right: DEFAULT_MARGIN.right as number, column: DEFAULT_COLUMN as number, gap: DEFAULT_GAP }
 async function saveSetting($: $T, field: string, value: number): Promise<boolean> {
   const rows = await $.config.list().catch(() => [])
   const row = rows.find(r => r.key === `${$.plugin.name}.${field}` || (r.key.startsWith(`${$.plugin.name}@`) && r.key.endsWith(`.${field}`)))
@@ -103,7 +121,8 @@ async function saveSetting($: $T, field: string, value: number): Promise<boolean
   const set = await $.config.set({ key: row.key, value }).catch((err: unknown) => ({ deny: String(err) }))
   return !set.deny
 }
-const MARGIN_HELP = 'Examples: /village-margins left 285, /village-margins right 410, /village-margins 285 410. 0 removes a margin.'
+const MARGIN_HELP = 'Examples: /village-margins left 285, /village-margins right 410, /village-margins 285 410 (0 removes a margin), /village-margins column 960 (the conversation column, 768 by default, 0 for none), /village-margins click (two clicks on the village set the margins).'
+const CLICK_HELP = 'Click the village just right of the sidebar, then just left of the right panel (or near the right edge of the window when no panel is open). The margins then follow the window as shares of its width; /village-margins with pixels goes back to pixel margins.'
 
 // ---------- frames ----------
 function draw($: $T, urgent = false): void {
@@ -303,7 +322,7 @@ async function report($: $T, cmd?: { columns: number; isFullscreen: boolean }): 
     `Village: ${S.started ? 'awake' : 'asleep'}, activity ${S.activity}, model ${S.model}, effort ${S.effort}, context ${S.context}%${ctxTokens !== undefined ? ` (${chars(ctxTokens)} tokens)` : ''}, 5-hour limit ${S.rate}%, cost $${dec(S.cost, 2)}.`,
     `Tasks ${S.todoDone}/${S.todoTotal}, sub-agents ${S.subagents}. Branch ${branch || 'unknown'}: wave ${S.waveCurrent}/${S.wavesTotal}, steps ${steps || 'none'}.`,
     `World: ${ents.length} characters (${tally(ents.map(e => e.kind))}), ${ents.filter(e => e.pts && e.t1 > t).length} walking; effects: ${tally(fx.map(x => x.kind)) || 'none'}; fires: ${fires.length}.`,
-    `Margins: left ${margin.left} px, right ${margin.right} px${marginFrom ? `, from ${marginFrom}` : ''} (in full from 1,600 px wide, none under 700 px). Settings margin_left and margin_right ${hasRow('margin_left') && hasRow('margin_right') ? 'offered by the app' : 'missing (plugin loaded from a folder?)'}.`,
+    `Margins: ${share ? `left ${pct(share.left)}, right ${pct(share.right)} of the window's width, set by two clicks` : `left ${margin.left} px, right ${margin.right} px${marginFrom ? `, from ${marginFrom}` : ''} (in full from 1,600 px wide, none under 700 px)`}. Conversation column: ${column ? `${column} px` : 'none'}.${waiting() ? ` Waiting for ${waiting()?.first === undefined ? 'two clicks' : 'a second click'}.` : ''} Settings margin_left and margin_right ${hasRow('margin_left') && hasRow('margin_right') ? 'offered by the app' : 'missing (plugin loaded from a folder?)'}.`,
     `Size received with the backdrop, since: ${views.map(v => `${ago(t - v.at)} ago, ${v.view}`).join('; ') || 'none'}.${cmd ? ` With this command: ${cmd.columns} columns, isFullscreen ${cmd.isFullscreen}.` : ''}`,
     `Compaction: ${lastCompact ? `${Math.round((t - lastCompact) / 60_000)} min ago, seen by ${compactVia}` : 'none'}.`,
     `Events received: ${[...seen].map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}.`,
@@ -318,9 +337,10 @@ export const register: Register = (on, options) => {
   margin.left = options.margin_left == null ? DEFAULT_MARGIN.left : pixels(options.margin_left)
   margin.right = options.margin_right == null ? DEFAULT_MARGIN.right : pixels(options.margin_right)
   marginFrom = options.margin_left == null && options.margin_right == null ? 'the defaults' : 'the plugin settings'
+  column = options.column_width == null ? DEFAULT_COLUMN : pixels(options.column_width)
   gap = beat(options.frame_interval) ?? DEFAULT_GAP
   gapFrom = gap === DEFAULT_GAP ? 'default' : 'plugin settings' // options come with the defaults filled in
-  Object.assign(asSet, { left: margin.left, right: margin.right, gap })
+  Object.assign(asSet, { left: margin.left, right: margin.right, column, gap })
   on('session.start', async ($, e, next) => {
     saw('session.start')
     cwd = e.cwd
@@ -334,13 +354,21 @@ export const register: Register = (on, options) => {
     S.activity = 'idle'
     // asleep until the first message; a resumed conversation is already awake
     S.started = turns > 0
-    const kept = (await $.store.get(MARGIN_STORE)) as { left?: unknown; right?: unknown; over?: { left?: unknown; right?: unknown } } | undefined
-    const over = { ...DEFAULT_MARGIN, ...kept?.over }
-    if (kept && (over.left !== asSet.left || over.right !== asSet.right)) await $.store.delete(MARGIN_STORE)
+    const kept = (await $.store.get(MARGIN_STORE)) as { left?: unknown; right?: unknown; column?: unknown; over?: { left?: unknown; right?: unknown; column?: unknown } } | undefined
+    const over = { ...DEFAULT_MARGIN, column: DEFAULT_COLUMN, ...kept?.over }
+    if (kept && (over.left !== asSet.left || over.right !== asSet.right || over.column !== asSet.column)) await $.store.delete(MARGIN_STORE)
     else if (kept) {
       margin.left = pixels(kept.left)
       margin.right = pixels(kept.right)
+      if (kept.column !== undefined) column = pixels(kept.column)
       marginFrom = 'the mod storage'
+    }
+    const shares = (await $.store.get(SHARE_STORE)) as { left?: unknown; right?: unknown; over?: { left?: unknown; right?: unknown } } | undefined
+    if (shares) {
+      const was = { ...DEFAULT_MARGIN, ...shares.over }
+      const ok = typeof shares.left === 'number' && typeof shares.right === 'number'
+      if (ok && was.left === margin.left && was.right === margin.right) share = { left: shares.left as number, right: shares.right as number }
+      else await $.store.delete(SHARE_STORE)
     }
     // seconds alone as it was first kept, then with the setting it stood in for
     const sync = (await $.store.get(SYNC_STORE)) as number | { s?: unknown; over?: unknown } | null | undefined
@@ -355,7 +383,7 @@ export const register: Register = (on, options) => {
     newWorld(now())
     await $.command.register({ name: 'village', description: 'Opens or closes the village legend' })
     await $.command.register({ name: 'village-test', description: 'Counts the backdrop frames drawn in the last minute' })
-    await $.command.register({ name: 'village-margins', description: 'Sets the room left on each side of the village, in pixels' })
+    await $.command.register({ name: 'village-margins', description: 'Sets the room left on each side of the village and the conversation column it keeps clear of' })
     await $.command.register({ name: 'village-sync', description: 'Sets the time between two backdrop frames, in seconds (1 by default)' })
     await $.command.register({ name: 'village-debug', description: 'Reports on the backdrop, its frames, the session and the events received' })
     const set = await $.theme.set({ backdrop: { scene: SCENE } })
@@ -558,7 +586,7 @@ export const register: Register = (on, options) => {
     }
     // every pixel is a vector path: the desktop drops images embedded in a scene
     // the world as it stood when the frame was asked: frames a second apart show steps a second apart
-    const svg = quiet >= REST_STOP ? REST_FIELD : compose(lastDraw || now(), margin)
+    const svg = quiet >= REST_STOP ? REST_FIELD : compose(lastDraw || now(), layout())
     keep(drawn, now())
     if (!firstDrawn) firstDrawn = now()
     // drawn now, whatever theme.set answered before the desktop attached
@@ -575,17 +603,23 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'village-debug' }, async ($, e) => ({ text: await report($, e.presentation) }))
 
-  // /village-margins left 285, right 410, or both at once: saved in the settings (or the store), drawn at once.
+  // /village-margins left 285, right 410, or both at once, column 960: saved in the settings (or the store),
+  // drawn at once. /village-margins click: the next two clicks on the village set the margins.
   on('command.run', { command: 'village-margins' }, async ($, e) => {
     const words = e.args.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    if (words.length === 1 && /^(click|clic)$/.test(words[0] ?? '')) {
+      clicking = { until: now() + CLICK_WAIT }
+      return { text: CLICK_HELP }
+    }
     const num = (w?: string) => (w !== undefined && /^\d+$/.test(w) ? Math.min(2000, Number(w)) : undefined)
-    const want: Partial<Record<'left' | 'right', number>> = {}
+    const want: Partial<Record<'left' | 'right' | 'column', number>> = {}
     if (words.length === 2 && num(words[0]) !== undefined && num(words[1]) !== undefined) {
       want.left = num(words[0])
       want.right = num(words[1])
     } else {
       for (let i = 0; i < words.length; i += 2) {
-        const side = /^(g|gauche|l|left)$/.test(words[i] ?? '') ? 'left' : /^(d|droite|r|right)$/.test(words[i] ?? '') ? 'right' : undefined
+        const w = words[i] ?? ''
+        const side = /^(g|gauche|l|left)$/.test(w) ? 'left' : /^(d|droite|r|right)$/.test(w) ? 'right' : /^(c|col|column|colonne)$/.test(w) ? 'column' : undefined
         const v = num(words[i + 1])
         if (!side || v === undefined) return { text: MARGIN_HELP }
         want[side] = v
@@ -598,15 +632,47 @@ export const register: Register = (on, options) => {
       margin[side] = v
       if (!(await saveSetting($, MARGIN_KEY[side], v))) inSettings = false
     }
+    if (want.column !== undefined) {
+      column = want.column
+      if (!(await saveSetting($, 'column_width', column))) inSettings = false
+    }
     if (words.length) {
       if (inSettings) await $.store.delete(MARGIN_STORE)
-      else await $.store.set(MARGIN_STORE, { ...margin, over: { left: asSet.left, right: asSet.right } })
+      else await $.store.set(MARGIN_STORE, { ...margin, column, over: { left: asSet.left, right: asSet.right, column: asSet.column } })
       marginFrom = margin.left || margin.right ? (inSettings ? 'the plugin settings' : 'the mod storage') : ''
     }
+    // margins in pixels take over from those two clicks set
+    if (want.left !== undefined || want.right !== undefined) {
+      share = null
+      clicking = null
+      await $.store.delete(SHARE_STORE)
+    }
     draw($, true)
-    const line = `Village margins: left ${margin.left} px, right ${margin.right} px.`
+    const sides = share ? `left ${pct(share.left)}, right ${pct(share.right)} of the window's width` : `left ${margin.left} px, right ${margin.right} px`
+    const line = `Village margins: ${sides}, conversation column ${column ? `${column} px` : 'none'}.`
     if (!words.length) return { text: `${line} ${MARGIN_HELP}` }
     return { text: `${line} ${inSettings ? 'Saved in the plugin settings.' : 'Kept for the next sessions.'}` }
+  })
+
+  // The two clicks /village-margins click waits for, at the edges of the room between the app's panels, in
+  // either order. A second click too close to the first stands for a first one instead.
+  on('ui.pointer', async ($, e, next) => {
+    if (e.scene !== SCENE || !clicking) return next(e)
+    if (!waiting()) {
+      clicking = null
+      draw($, true)
+      return next(e)
+    }
+    const set = clicking.first === undefined ? null : clickShares(clicking.first, e.x)
+    if (!set) clicking.first = e.x
+    else {
+      share = set
+      clicking = null
+      marginFrom = 'two clicks'
+      await $.store.set(SHARE_STORE, { ...set, over: { left: margin.left, right: margin.right } })
+    }
+    draw($, true)
+    return next(e)
   })
 
   // /village-sync 0.5: the time between two frames, in seconds, saved in the settings (or the store), at once.
