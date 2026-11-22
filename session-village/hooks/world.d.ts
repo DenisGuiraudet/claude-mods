@@ -21,6 +21,12 @@ export interface SessionState {
 }
 export interface WorldState {
   dirty: boolean;
+  /** Steps taken, one a beat: still poses go one step a frame. */
+  frame: number;
+  /** Seconds between two steps, 1 by default: with frames closer than a loop's steps, its still pose keeps the loop's pace. */
+  beat: number;
+  /** Frames over budget, drawn again without walk cycles. */
+  lite: number;
   fx: unknown[];
   fires: unknown[];
   ents: unknown[];
@@ -45,7 +51,14 @@ export function newWorld(now: number): void;
 export function step(now: number): void;
 export function retarget(now: number): void;
 export function wake(now: number): void;
-export function compose(now: number): string;
+/**
+ * The scene at `now`. `left` and `right` (px) leave room on each side, in full from a 1600 px wide window, or
+ * `fracLeft` and `fracRight`, shares of its width; `column` (px) is the conversation column the buildings stay
+ * out of (0: none); `mark`, a share of the width, draws a line there.
+ */
+export function compose(now: number, margins?: { left: number; right: number; column?: number; fracLeft?: number; fracRight?: number; mark?: number }): string;
+/** Two clicks (shares of the width, either order) as margins, or null for clicks under a fifth of it apart. */
+export function clickShares(a: number, b: number): { left: number; right: number } | null;
 export function busy(since: number): boolean;
 export function ambient(now: number, D: Derived, V: View, id?: string): { id: string; name: string } | null;
 export function evPrompt(now: number): void;
